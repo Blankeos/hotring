@@ -329,6 +329,8 @@ export class Game {
       letters: LETTERS.map((ch) => ({ ch, used: this.used.has(ch) })),
       taps: this.taps,
       lit: this.lit,
+      fuseLeft: this.lit ? Math.max(0, this.fuseStart + this.fuseLen - Date.now()) : null,
+      fuseLen: this.lit ? this.fuseLen : null,
       cardUntil: this.cardUntil,
       revealAt: this.revealAt,
     }

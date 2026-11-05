@@ -286,21 +286,21 @@ def ui():
 
 
 # name -> (builder, peak ceiling dBFS, target LUFS as measured by earshot or None for very short sounds).
-# Quiet little sounds (tap/tick/ui) sit lower; boom/win/start are the loud ones.
+# Phone speakers are weak: everything is mastered hot (peaks near -1.5 dBFS, long sounds around -9 to -11 LUFS).
 SOUNDS = {
-    'tap': (lambda: tap(0), -7.0, None), 'tap2': (lambda: tap(1), -7.0, None), 'tap3': (lambda: tap(2), -7.0, None),
-    'tick': (tick, -7.0, None),
-    'boom': (boom, -3.5, -13.0),
-    'shuffle': (shuffle, -5.0, -16.5),
-    'flip': (flip, -5.0, None),
-    'whoosh': (whoosh, -6.0, None),
-    'yourturn': (yourturn, -4.0, -15.5),
-    'join': (join, -4.5, None),
-    'start': (start, -3.0, -13.0),
-    'refill': (refill, -4.0, -13.5),
-    'out': (out, -4.0, -13.5),
-    'win': (win, -3.0, -13.0),
-    'ui': (ui, -8.0, None),
+    'tap': (lambda: tap(0), -2.5, None), 'tap2': (lambda: tap(1), -2.5, None), 'tap3': (lambda: tap(2), -2.5, None),
+    'tick': (tick, -2.5, None),
+    'boom': (boom, -1.5, -9.0),
+    'shuffle': (shuffle, -1.5, -11.5),
+    'flip': (flip, -1.5, None),
+    'whoosh': (whoosh, -2.0, None),
+    'yourturn': (yourturn, -1.5, -10.5),
+    'join': (join, -1.5, None),
+    'start': (start, -1.5, -9.5),
+    'refill': (refill, -1.5, -9.5),
+    'out': (out, -1.5, -9.5),
+    'win': (win, -1.5, -9.5),
+    'ui': (ui, -3.0, None),
 }
 
 

@@ -45,6 +45,9 @@ export interface Snapshot {
   letters: { ch: string; used: boolean }[]
   taps: number // letter taps this round
   lit: boolean // the fuse is burning
+  /** ms left on the burning fuse at `now` (null when not lit), and its full length, for a visible timer. */
+  fuseLeft: number | null
+  fuseLen: number | null
   cardUntil: number | null
   revealAt: number | null
 }

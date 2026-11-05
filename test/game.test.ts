@@ -99,6 +99,8 @@ describe('rounds', () => {
     game.handle(r, { t: 'tap', letter: 'C' })
     expect(snap(r).turn).toBe(a!) // wrapped round
     expect(snap(r).lit).toBe(true)
+    expect(snap(r).fuseLeft).toBeGreaterThan(4000)
+    expect(snap(r).fuseLen).toBe(5000)
     const taps = events(r).filter((e) => e.type === 'tap') as Extract<ServerEvent, { type: 'tap' }>[]
     expect(taps.map((t) => t.by)).toEqual([a!, b!, c!])
   })
