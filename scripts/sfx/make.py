@@ -109,12 +109,15 @@ def hz(note):
 
 # ------------------------------------------------------------------ sounds
 def tap(i):
-    # soft rounded pop + knock, tiny glassy sparkle. three pitch variants
-    pitch = ['F4', 'A4', 'C5'][i]
+    # soft rounded pop (pitch-dropping sine) + a dry wood knock + a tiny glassy sparkle; 3 pitch variants
+    k = [1.0, 1.19, 0.89][i]
+    t = np.arange(int(0.16 * SR)) / SR
+    ph = 2 * np.pi * np.cumsum(k * (400 + 500 * np.exp(-t / 0.02))) / SR
     m = Mix(0.18)
-    m.add(S('ui_pop/soft', pitch=pitch, dur=0.16), 0, 1.0)
-    m.add(thud(0.1, 260 * 2 ** (i / 6), 150, 0.025), 0, 0.5)
-    m.add(hp(S('mallet/glock', pitch=['C7', 'E7', 'G7'][i], dur=0.12), 2500), 0.012, 0.07)
+    m.add(np.sin(ph) * np.exp(-t / 0.05) * np.minimum(t / 0.002, 1), 0, 1.0)
+    m.add(ping(900 * 2.1 * k, 0.05, 0.008), 0, 0.15)
+    m.add(S('knock/wood', dur=0.08, speed=1.3 * k), 0, 0.4)
+    m.add(hp(S('mallet/glock', pitch=['E7', 'G7', 'D7'][i], dur=0.12), 2500), 0.012, 0.07)
     return m.out(0.17)
 
 
@@ -154,35 +157,30 @@ def boom():
 
 
 def shuffle():
-    # riffle: dense papery flaps, rate accelerates then eases; two interleaved halves
+    # two interleaved riffling halves: short papery flaps, rate swells then eases, a soft settle at the end
     d = 1.45
     m = Mix(d)
-    r = np.random.default_rng(11)
-    t = 0.02
-    while t < 1.25:
-        u = t / 1.25
-        rate = 22 + 55 * np.sin(np.pi * min(u * 1.1, 1)) ** 0.8     # flaps / s
-        n = int(r.uniform(0.004, 0.011) * SR)
-        f = r.uniform(2500, 6500)
-        fl = bp(noise(n / SR, int(r.integers(1e9))), f * 0.6, min(f * 1.5, 14000)) * np.exp(-np.arange(n) / (n * 0.35))
-        env = np.sin(np.pi * u) ** 0.5
-        m.add(fl, t, r.uniform(0.35, 1.0) * (0.3 + 0.7 * env))
-        t += 1 / rate * r.uniform(0.6, 1.4)
-    body = hp(lp(noise(d, 21), 5500), 700)
-    u = np.linspace(0, 1, len(body))
-    m.add(body * np.sin(np.pi * np.clip(u * 0.87, 0, 1)) ** 1.5, 0, 0.18)
-    # final bridge 'thup' as the halves settle
-    m.add(S('knock/desk', speed=1.3, dur=0.1), 1.25, 0.35)
+    r = np.random.default_rng(7)
+    for half in range(2):
+        t = 0.02 + 0.01 * half
+        while t < 1.25:
+            u = t / 1.25
+            rate = 18 + 30 * np.sin(np.pi * min(u * 1.1, 1)) ** 0.8
+            n = int(r.uniform(0.006, 0.014) * SR)
+            f = r.uniform(1500, 4500)
+            x = bp(noise(n / SR, int(r.integers(1e9))), f * 0.6, f * 1.6) * np.hanning(n * 2)[n // 3:n // 3 + n]
+            m.add(x, t, r.uniform(0.4, 1) * (0.3 + 0.7 * np.sin(np.pi * u) ** 0.5))
+            t += 1 / rate * r.uniform(0.8, 1.2)
+    m.add(S('knock/desk', speed=1.3, dur=0.1), 1.25, 0.3)
     return m.out(1.4)
 
 
 def flip():
     m = Mix(0.4)
-    m.add(hp(S('swish/flick', dur=0.14, speed=1.15), 1500), 0.0, 0.35)             # lift
-    m.add(S('pro_tap/soft', dur=0.1, speed=1.1), 0.1, 1.0)                          # slap
-    m.add(lp(noise(0.05, 4), 3500) * np.exp(-np.arange(int(0.05 * SR)) / (0.008 * SR)), 0.1, 0.5)
-    m.add(thud(0.1, 200, 110, 0.03), 0.1, 0.4)
-    m.add(hp(S('mallet/glock', pitch='E7', dur=0.25), 2500), 0.13, 0.10)           # light sparkle tail
+    m.add(hp(S('swish/flick', dur=0.14, speed=1.15), 1500), 0.0, 0.9)               # lift
+    m.add(S('pro_tap/soft', dur=0.1, speed=1.1), 0.1, 0.3)                           # slap
+    m.add(hp(lp(noise(0.06, 4), 5000), 600) * np.exp(-np.arange(int(0.06 * SR)) / (0.01 * SR)), 0.1, 1.0)
+    m.add(hp(S('mallet/glock', pitch='E7', dur=0.25), 2500), 0.13, 0.10)            # light sparkle tail
     m.add(hp(S('mallet/celesta', pitch='B7', dur=0.22), 3000), 0.19, 0.06)
     return m.out(0.36)
 
@@ -207,10 +205,9 @@ def yourturn():
 
 def join():
     m = Mix(0.35)
-    m.add(S('drip/plink', pitch='G5', dur=0.25), 0.0, 0.9)
-    m.add(S('drip/bubble', pitch='C5', dur=0.2), 0.0, 0.5)
-    m.add(S('ui_pop/blip', pitch='C6', dur=0.15), 0.07, 0.6)
-    m.add(hp(S('mallet/glock', pitch='G6', dur=0.2), 1500), 0.09, 0.15)
+    m.add(S('drip/bubble', pitch='G4', dur=0.25), 0, 1.0)
+    m.add(S('drip/plink', pitch='C6', dur=0.25), 0.05, 0.4)
+    m.add(S('pro_pop/bloop', dur=0.15, speed=1.3), 0.08, 0.5)
     return m.out(0.3)
 
 
@@ -281,25 +278,42 @@ def win():
     return m.out(2.25)
 
 
-# name -> (builder, peak_db). Quiet little sounds sit lower; boom/win/start are the loud ones.
+def ui():
+    m = Mix(0.08)
+    m.add(S('hover_tick/detent', dur=0.08), 0, 0.6)
+    m.add(lp(S('click/thock', dur=0.08), 4000), 0, 0.6)
+    return m.out()
+
+
+# name -> (builder, peak ceiling dBFS, target LUFS as measured by earshot or None for very short sounds).
+# Quiet little sounds (tap/tick/ui) sit lower; boom/win/start are the loud ones.
 SOUNDS = {
-    'tap': (lambda: tap(0), -7.0), 'tap2': (lambda: tap(1), -7.0), 'tap3': (lambda: tap(2), -7.0),
-    'tick': (tick, -7.0),
-    'boom': (boom, -2.5),
-    'shuffle': (shuffle, -5.0),
-    'flip': (flip, -5.0),
-    'whoosh': (whoosh, -6.0),
-    'yourturn': (yourturn, -4.0),
-    'join': (join, -4.5),
-    'start': (start, -3.0),
-    'refill': (refill, -4.0),
-    'out': (out, -4.0),
-    'win': (win, -3.0),
-    'ui': (lambda: S('click/soft', dur=0.08, speed=1.1), -8.0),
+    'tap': (lambda: tap(0), -7.0, None), 'tap2': (lambda: tap(1), -7.0, None), 'tap3': (lambda: tap(2), -7.0, None),
+    'tick': (tick, -7.0, None),
+    'boom': (boom, -3.5, -13.0),
+    'shuffle': (shuffle, -5.0, -16.5),
+    'flip': (flip, -5.0, None),
+    'whoosh': (whoosh, -6.0, None),
+    'yourturn': (yourturn, -4.0, -15.5),
+    'join': (join, -4.5, None),
+    'start': (start, -3.0, -13.0),
+    'refill': (refill, -4.0, -13.5),
+    'out': (out, -4.0, -13.5),
+    'win': (win, -3.0, -13.0),
+    'ui': (ui, -8.0, None),
 }
 
 
-def finish(x, peak_db):
+def measure_lufs(x):
+    import tempfile
+    from earshot import features
+    with tempfile.TemporaryDirectory() as td:
+        p = os.path.join(td, 'm.wav')
+        wavfile.write(p, SR, x.astype(np.float32))
+        return features.measure(p, light=True)['lufs']
+
+
+def finish(x, peak_db, target=None):
     x = np.asarray(x, np.float64)
     x = x - np.mean(x)
     x = hp(x, 40, 1)
@@ -308,7 +322,17 @@ def finish(x, peak_db):
     a, f = int(0.003 * SR), min(int(0.012 * SR), n // 3)    # short in-fade (keeps the transient), longer out-fade
     x[:a] *= np.linspace(0, 1, a)
     x[-f:] *= np.cos(np.linspace(0, np.pi / 2, f)) ** 2
-    return x / (np.abs(x).max() + 1e-9) * 10 ** (peak_db / 20)
+    ceil = 10 ** (peak_db / 20)
+    x = x / (np.abs(x).max() + 1e-9)
+    if target is not None:
+        # raise loudness to the target; a tanh soft limiter holds the peak ceiling (gentle density, no hard clip)
+        g = 1.0
+        for _ in range(5):
+            y = np.tanh(x * g) / np.tanh(g) if g > 1 else x * g
+            g *= 10 ** ((target - measure_lufs(y * ceil)) / 20)
+        x = np.tanh(x * g) / np.tanh(g) if g > 1 else x * g
+        print('   drive %.2f' % g, end='')
+    return x * ceil
 
 
 def write(name, x):
@@ -325,8 +349,9 @@ def write(name, x):
 if __name__ == '__main__':
     names = sys.argv[1:] or list(SOUNDS)
     for n in names:
-        fn, pk = SOUNDS[n]
-        p = write(n, finish(fn(), pk))
-        print(n, p)
+        fn, pk, tg = SOUNDS[n]
+        y = finish(fn(), pk, tg)
+        write(n, y)
+        print(' ', n, '%.2fs' % (len(y) / SR))
     with open(os.path.join(OUT, 'CREDITS.txt'), 'w') as fh:
         fh.write('Synthesized with earshot, no samples.\n')
