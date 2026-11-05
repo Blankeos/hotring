@@ -19,6 +19,19 @@ interface Item {
   out: boolean
 }
 
+interface Drag {
+  id: string
+  pid: number
+  sx: number
+  sy: number
+  from: number
+  to: number
+  slots: { x: number; y: number }[]
+  work: string[]
+  it: Item
+  off?: () => void
+}
+
 export class Roster {
   el: HTMLDivElement
   private items = new Map<string, Item>()
@@ -31,6 +44,11 @@ export class Roster {
   pipDelay = 0
   onOpen: (id: string, anchor: DOMRect) => void = () => {}
   onAdd: (anchor: DOMRect) => void = () => {}
+  onOrder: (ids: string[]) => void = () => {}
+  private order: string[] = []
+  private drag: Drag | null = null
+  private justDragged = 0
+  private sent: { ids: string[]; at: number } | null = null
 
   constructor(parent: HTMLElement, private fx: Fx) {
     this.el = h('div', '', parent)
@@ -47,6 +65,12 @@ export class Roster {
     this.el.style.setProperty('--a', o.size + 'px')
     this.el.classList.toggle('empty', players.length === 0)
     this.addWrap.classList.toggle('full', players.length >= MAX_PLAYERS)
+    // Roster membership changed under a drag: drop it cleanly, the new truth wins.
+    if (this.drag && (players.length !== this.order.length || players.some((p) => !this.order.includes(p.id)))) this.cancelDrag(false)
+    // Just dropped: hold our order until the server echoes it (avoids a flicker back).
+    const held = this.sent && performance.now() - this.sent.at < 1200 && players.map((p) => p.id).join() !== this.sent.ids.join()
+    if (this.sent && !held) this.sent = null
+    if (!this.drag && !held) this.order = players.map((p) => p.id)
     const seen = new Set<string>()
     players.forEach((p, i) => {
       seen.add(p.id)
@@ -62,7 +86,11 @@ export class Roster {
         const pips = Array.from({ length: MAX_MARKS }, () => h('span', 'pip', row))
         it = { el, disc, ini, pips, cross, crown, marks: p.marks, out: p.out }
         const id = p.id
-        disc.addEventListener('click', () => this.onOpen(id, disc.getBoundingClientRect()))
+        disc.addEventListener('click', () => {
+          if (performance.now() - this.justDragged < 400) return
+          this.onOpen(id, disc.getBoundingClientRect())
+        })
+        disc.addEventListener('pointerdown', (e) => this.press(id, e))
         this.items.set(p.id, it)
         const item = it
         anim(el, [{ transform: 'scale(0)' }, { transform: 'scale(1.3)', offset: 0.55, easing: E.out }, { transform: 'scale(.94)', offset: 0.8 }, { transform: 'scale(1)' }], {
@@ -83,7 +111,8 @@ export class Roster {
           })
         }
       }
-      if (this.el.children[i + 1] !== it.el) this.el.insertBefore(it.el, this.el.children[i + 1] ?? this.addWrap)
+      // While a disc is being dragged, order updates from other phones wait (no teleporting).
+      if (!this.drag && !held && this.el.children[i + 1] !== it.el) this.el.insertBefore(it.el, this.el.children[i + 1] ?? this.addWrap)
       const col = p.out ? '#3a3354' : pc(p.color)
       it.el.style.setProperty('--c', col)
       it.el.style.setProperty('--cd', shade(col, 0.42))
@@ -136,8 +165,182 @@ export class Roster {
     requestAnimationFrame(() => this.placeHalo())
   }
 
+  // ---- drag and drop to reorder ----
+
+  private press(id: string, e: PointerEvent) {
+    if (e.button > 0 || this.drag) return
+    const it = this.items.get(id)
+    if (!it) return
+    const sx = e.clientX
+    const sy = e.clientY
+    const pid = e.pointerId
+    let hold: ReturnType<typeof setTimeout> | undefined
+    const disc = it.disc
+    const cleanup = () => {
+      clearTimeout(hold)
+      disc.removeEventListener('pointermove', move)
+      disc.removeEventListener('pointerup', up)
+      disc.removeEventListener('pointercancel', up)
+    }
+    const lift = (ev: { clientX: number; clientY: number }) => {
+      cleanup()
+      this.lift(id, pid, sx, sy, ev)
+    }
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== pid) return
+      const dx = ev.clientX - sx
+      const dy = ev.clientY - sy
+      // Mouse: dragging sideways picks it up straight away. Touch: must hold first.
+      if (ev.pointerType === 'mouse' && Math.hypot(dx, dy) > 8) lift(ev)
+      else if (ev.pointerType !== 'mouse' && Math.hypot(dx, dy) > 12) cleanup()
+    }
+    const up = () => cleanup()
+    disc.addEventListener('pointermove', move)
+    disc.addEventListener('pointerup', up)
+    disc.addEventListener('pointercancel', up)
+    hold = setTimeout(() => lift({ clientX: sx, clientY: sy }), 220)
+  }
+
+  private slots(): { x: number; y: number }[] {
+    return this.order.map((id) => {
+      const it = this.items.get(id)!
+      return { x: it.el.offsetLeft + it.el.offsetWidth / 2, y: it.el.offsetTop + it.disc.offsetHeight / 2 }
+    })
+  }
+
+  private lift(id: string, pid: number, sx: number, sy: number, at: { clientX: number; clientY: number }) {
+    const it = this.items.get(id)
+    if (!it) return
+    const from = this.order.indexOf(id)
+    if (from < 0) return
+    const d: Drag = { id, pid, sx, sy, from, to: from, slots: this.slots(), work: this.order.slice(), it }
+    this.drag = d
+    try {
+      it.disc.setPointerCapture(pid)
+    } catch {
+      /* pointer already gone */
+    }
+    it.el.classList.add('lifted')
+    this.el.classList.add('dragging')
+    this.halo.classList.remove('on')
+    navigator.vibrate?.(8)
+    for (const other of this.items.values()) if (other !== it) other.el.classList.add('sliding')
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== pid) return
+      ev.preventDefault()
+      this.dragTo(ev.clientX, ev.clientY)
+    }
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== pid) return
+      this.drop(ev.type === 'pointercancel')
+    }
+    const key = (ev: KeyboardEvent) => ev.key === 'Escape' && this.cancelDrag(true)
+    d.off = () => {
+      it.disc.removeEventListener('pointermove', move)
+      it.disc.removeEventListener('pointerup', up)
+      it.disc.removeEventListener('pointercancel', up)
+      removeEventListener('keydown', key)
+      try {
+        it.disc.releasePointerCapture(pid)
+      } catch {
+        /* fine */
+      }
+    }
+    it.disc.addEventListener('pointermove', move)
+    it.disc.addEventListener('pointerup', up)
+    it.disc.addEventListener('pointercancel', up)
+    addEventListener('keydown', key)
+    this.dragTo(at.clientX, at.clientY)
+  }
+
+  private dragTo(cx: number, cy: number) {
+    const d = this.drag
+    if (!d) return
+    const dx = cx - d.sx
+    const dy = cy - d.sy
+    d.it.el.style.transform = `translate(${dx}px,${dy}px)`
+    // Nearest slot by 2D distance, so it works across both rows when the row wraps.
+    const me = d.slots[d.from]!
+    const px = me.x + dx
+    const py = me.y + dy
+    let best = d.to
+    let bd = Infinity
+    d.slots.forEach((s, i) => {
+      const v = (s.x - px) ** 2 + (s.y - py) ** 2
+      if (v < bd) {
+        bd = v
+        best = i
+      }
+    })
+    if (best === d.to) return
+    d.to = best
+    d.work = this.order.filter((x) => x !== d.id)
+    d.work.splice(best, 0, d.id)
+    // Everyone else slides to their new slot (FLIP-style transforms on top of the old layout).
+    d.work.forEach((id, i) => {
+      if (id === d.id) return
+      const it = this.items.get(id)
+      if (!it) return
+      const was = this.order.indexOf(id)
+      const a = d.slots[was]!
+      const b = d.slots[i]!
+      it.el.style.transform = i === was ? '' : `translate(${b.x - a.x}px,${b.y - a.y}px)`
+    })
+  }
+
+  private drop(cancelled: boolean) {
+    const d = this.drag
+    if (!d) return
+    if (cancelled) return this.cancelDrag(true)
+    d.off?.()
+    this.justDragged = performance.now()
+    const a = d.slots[d.from]!
+    const b = d.slots[d.to]!
+    const el = d.it.el
+    el.classList.add('settling')
+    el.style.transform = `translate(${b.x - a.x}px,${b.y - a.y}px)`
+    const changed = d.work.some((id, i) => id !== this.order[i])
+    setTimeout(() => {
+      if (this.drag !== d) return
+      this.finish(d.work)
+      if (changed) {
+        this.sent = { ids: d.work.slice(), at: performance.now() }
+        this.onOrder(d.work)
+      }
+    }, 260)
+  }
+
+  /** Put the DOM in the new order and drop all transforms in the same frame: no jump. */
+  private finish(order: string[]) {
+    const d = this.drag
+    this.drag = null
+    for (const id of order) {
+      const it = this.items.get(id)
+      if (it) this.el.insertBefore(it.el, this.addWrap)
+    }
+    for (const it of this.items.values()) {
+      it.el.classList.remove('sliding', 'lifted', 'settling')
+      it.el.style.transform = ''
+    }
+    this.el.classList.remove('dragging')
+    this.order = order.filter((id) => this.items.has(id))
+    void d
+    requestAnimationFrame(() => this.placeHalo())
+  }
+
+  cancelDrag(animate: boolean) {
+    const d = this.drag
+    if (!d) return
+    d.off?.()
+    if (!animate) return this.finish(this.order)
+    d.it.el.classList.add('settling')
+    for (const it of this.items.values()) it.el.style.transform = ''
+    setTimeout(() => this.drag === d && this.finish(this.order), 260)
+  }
+
   /** The turn highlight slides from disc to disc. */
   placeHalo() {
+    if (this.drag) return
     const it = this.turn ? this.items.get(this.turn) : undefined
     if (!it || !it.el.isConnected) {
       this.halo.classList.remove('on')

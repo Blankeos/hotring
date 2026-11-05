@@ -60,6 +60,9 @@ export const ICON = {
   cross:
     '<svg viewBox="0 0 100 100" aria-hidden="true"><path d="M22 22 78 78M78 22 22 78" stroke="currentColor" stroke-width="14" stroke-linecap="round"/></svg>',
   sound: sv('<path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z" fill="currentColor" stroke-width="2"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6M18.2 6.4a8 8 0 0 1 0 11.2"/>'),
+  soundWarn: sv(
+    '<path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z" fill="currentColor" stroke-width="2"/><path d="M19 7v6"/><circle cx="19" cy="17.5" r="1.2" fill="currentColor" stroke="none"/>',
+  ),
   mute: sv('<path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z" fill="currentColor" stroke-width="2"/><path d="M16 9.5l5 5M21 9.5l-5 5"/>'),
   qr: sv(
     '<rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1.6"/><rect x="14" y="3.5" width="6.5" height="6.5" rx="1.6"/><rect x="3.5" y="14" width="6.5" height="6.5" rx="1.6"/><path d="M14 14h2.5v2.5M20.5 14v.01M14 20.5h.01M17.5 20.5h3v-3"/>',

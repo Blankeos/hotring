@@ -408,6 +408,10 @@ roster.onOpen = (id) => {
   audio.play('ui', { gain: 0.6 })
   pop.openPlayer(p, () => roster.rect(id))
 }
+roster.onOrder = (ids) => {
+  audio.play('ui', { gain: 0.6 })
+  net.send({ t: 'order', ids })
+}
 pop.onAdd = (name) => net.send({ t: 'add', name })
 pop.onRemove = (id) => net.send({ t: 'remove', id })
 pop.onRename = (id, name) => net.send({ t: 'rename', id, name })
@@ -418,17 +422,48 @@ deck.onDraw = () => {
   net.send({ t: 'draw' })
 }
 
+// The speaker is also a tiny audio status light:
+//   speaker = playing; speaker + "!" = audio blocked here (tap to retry); slashed = muted.
+// Tap: unlock + a test blip. Second tap within 1.5 s, or a long press: toggle mute.
 function paintMute() {
-  muteBtn.innerHTML = audio.muted ? ICON.mute : ICON.sound
-  muteBtn.setAttribute('aria-label', audio.muted ? 'unmute' : 'mute')
+  const st = audio.status
+  const warn = !audio.muted && st === 'blocked'
+  muteBtn.innerHTML = audio.muted ? ICON.mute : warn ? ICON.soundWarn : ICON.sound
+  muteBtn.setAttribute('aria-label', audio.muted ? 'unmute' : warn ? 'sound blocked, tap to retry' : 'test sound')
   muteBtn.classList.toggle('muted', audio.muted)
+  muteBtn.classList.toggle('warn', warn)
 }
+audio.onStatus = paintMute
 paintMute()
+let lastMuteTap = 0
+let muteHold: ReturnType<typeof setTimeout> | undefined
+let held = false
+muteBtn.addEventListener('pointerdown', () => {
+  held = false
+  clearTimeout(muteHold)
+  muteHold = setTimeout(() => {
+    held = true
+    audio.setMuted(!audio.muted)
+    navigator.vibrate?.(12)
+    if (!audio.muted) audio.play('ui')
+    paintMute()
+  }, 550)
+})
+for (const t of ['pointerup', 'pointerleave', 'pointercancel'] as const) muteBtn.addEventListener(t, () => clearTimeout(muteHold))
 muteBtn.addEventListener('click', () => {
+  if (held) return
   audio.unlock()
-  audio.setMuted(!audio.muted)
-  paintMute()
+  const now = performance.now()
+  if (audio.muted) audio.setMuted(false)
+  else if (now - lastMuteTap < 1500) {
+    audio.setMuted(true)
+    lastMuteTap = 0
+    return paintMute()
+  }
+  lastMuteTap = now
   audio.play('ui')
+  anim(muteBtn, [{ transform: 'scale(1)' }, { transform: 'scale(1.25)', offset: 0.35 }, { transform: 'scale(1)' }], { duration: 300, easing: E.out, fill: 'none' })
+  paintMute()
 })
 
 shareBtn.addEventListener('click', () => {
@@ -438,8 +473,13 @@ shareBtn.addEventListener('click', () => {
 })
 
 // Unlock audio on the very first gesture, wherever it lands.
+// Synchronously inside the gesture (iOS only honours resume()/play() there).
 for (const t of ['pointerdown', 'touchstart', 'touchend', 'click', 'keydown'] as const)
-  addEventListener(t, () => audio.unlock(), { capture: true, passive: true })
+  addEventListener(
+    t,
+    (e) => audio.unlock(!(t === 'touchstart' || (t === 'pointerdown' && (e as PointerEvent).pointerType !== 'mouse'))),
+    { capture: true, passive: true },
+  )
 // Debug handle for checking the audio state from devtools.
 ;(window as unknown as { __hotringAudio: Audio }).__hotringAudio = audio
 // No pinch / double-tap zoom, no context menus: it's a game.
