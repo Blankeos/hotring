@@ -57,3 +57,12 @@ export function shade(color: string, k = 0.38): string {
   const f = (v: number) => Math.round(v * (1 - k))
   return `rgb(${f(r)},${f(g)},${f(b)})`
 }
+
+export const HOT_ACCENT = '#FF6B4A'
+/** Card face tint: stable per category text (same in the picker, on the card and the pill). */
+export function accentFor(c: { text: string; hot?: boolean }) {
+  if (c.hot) return HOT_ACCENT
+  let h = 0
+  for (const ch of c.text) h = (h * 31 + ch.charCodeAt(0)) | 0
+  return cardAccent(Math.abs(h))
+}

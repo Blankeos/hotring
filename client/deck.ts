@@ -5,7 +5,7 @@ import type { CategoryCard } from '../shared/protocol'
 import type { Audio } from './audio'
 import { E, anim, h, reduced } from './dom'
 import type { Fx } from './fx'
-import { CREAM, cardAccent } from './palette'
+import { CREAM, accentFor } from './palette'
 
 const N = 6
 // Rest pose of each card in the stack, bottom (0) to top (N-1).
@@ -88,12 +88,14 @@ export class Deck {
     this.emo = h('div', 'emo', this.front)
     this.txt = h('div', 'txt', this.front)
     this.shine = h('div', 'shine', this.front)
+    h('div', 'flame', this.front, '🔥')
 
     this.chip = h('div', '', parent)
     this.chip.id = 'chip'
     this.pill = h('div', 'pill', this.chip)
     this.chipEmo = h('span', 'emo', this.pill)
     this.chipTxt = h('span', 'txt', this.pill)
+    h('span', 'flame', this.pill, '🔥')
   }
 
   layout(L: DeckLayout) {
@@ -139,8 +141,10 @@ export class Deck {
     this.paint(card)
   }
 
-  private paint(card: CategoryCard) {
-    const acc = cardAccent(card.n)
+  private paint(card: { emoji: string; text: string; hot?: boolean }) {
+    const acc = accentFor(card)
+    this.front.classList.toggle('hot', !!card.hot)
+    this.pill.classList.toggle('hot', !!card.hot)
     this.front.style.setProperty('--acc', acc)
     this.pill.style.setProperty('--acc', acc)
     this.emo.textContent = card.emoji
@@ -194,6 +198,33 @@ export class Deck {
     anim(this.fly, [{ transform: 'scale(.6)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }], { duration: 420, easing: E.spring })
     this.setStage(faceUp ? 'revealed' : 'center')
     if (!faceUp) this.startFloat()
+  }
+
+  /** Where the big centre card sits (page coords). */
+  cardRect() {
+    return this.L?.card ?? null
+  }
+
+  /**
+   * This phone picked the card from its hand: it's already face up in the centre,
+   * so skip the shuffle and lift. (Other phones run the normal sequence.)
+   */
+  presentPicked(c: { emoji: string; text: string; hot?: boolean }) {
+    this.seq++
+    this.revealWanted = false
+    this.n = -1
+    this.hideChip()
+    this.paint(c)
+    this.showFly(true)
+    this.setStage('revealed')
+    this.audio.play('flip')
+    const L = this.L
+    if (L) {
+      const acc = accentFor(c)
+      this.fx.stars(L.card.x, L.card.y, { colors: [CREAM, acc, '#FFD23F'], n: 16, w: L.card.w, h: L.card.h, size: [5, 11], life: [0.6, 1.1] })
+      this.fx.burst(L.card.x, L.card.y, { colors: [acc, CREAM], n: 30, speed: [200, 520], size: [2, 4], g: 120, radius: L.card.w * 0.3, streak: 0.4 })
+      anim(this.shine, [{ transform: 'translateX(-160%) skewX(-18deg)' }, { transform: 'translateX(460%) skewX(-18deg)' }], { duration: 720, easing: E.inOut })
+    }
   }
 
   /** `reveal` event. */
@@ -362,7 +393,7 @@ export class Deck {
       { duration: reduced ? 300 : 680, easing: 'linear' },
     )
     setTimeout(() => {
-      const acc = cardAccent(this.n)
+      const acc = this.card ? accentFor(this.card) : CREAM
       this.fx.stars(L.card.x, L.card.y, { colors: [CREAM, acc, '#FFD23F'], n: 18, w: L.card.w, h: L.card.h, size: [5, 12], life: [0.6, 1.2] })
       this.fx.burst(L.card.x, L.card.y, { colors: [acc, CREAM], n: 36, speed: [200, 560], size: [2, 4], g: 120, radius: L.card.w * 0.3, streak: 0.4 })
       anim(this.shine, [{ transform: 'translateX(-160%) skewX(-18deg)' }, { transform: 'translateX(460%) skewX(-18deg)' }], {
@@ -416,7 +447,7 @@ export class Deck {
       { duration: 480, easing: E.out },
     )
     const r = this.chip.getBoundingClientRect()
-    if (r.width) this.fx.stars(r.left + r.width / 2, r.top + r.height / 2, { colors: [CREAM, cardAccent(this.n)], n: 8, w: r.width, h: r.height, size: [4, 8] })
+    if (r.width) this.fx.stars(r.left + r.width / 2, r.top + r.height / 2, { colors: [CREAM, this.card ? accentFor(this.card) : CREAM], n: 8, w: r.width, h: r.height, size: [4, 8] })
   }
 
   private hideChip() {

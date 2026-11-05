@@ -9,6 +9,7 @@ import { Fx } from './fx'
 import { Net } from './net'
 import { CREAM, GOLD, HOT, pc } from './palette'
 import { Ring, type RingMode } from './ring'
+import { Picker } from './picker'
 import { Takeover } from './takeover'
 import { Pop, Roster, Share } from './ui'
 
@@ -51,6 +52,11 @@ const remotesEl = h('div', '', shareBtn)
 remotesEl.id = 'remotes'
 const pop = new Pop(document.body)
 const takeover = new Takeover(stage, fx)
+const handBtn = h('button', '', stage, ICON.hand)
+handBtn.id = 'handbtn'
+handBtn.type = 'button'
+handBtn.setAttribute('aria-label', 'pick a card')
+const picker = new Picker(document.body, audio)
 const conn = h('div', '', stage)
 conn.id = 'conn'
 const share = new Share(document.body)
@@ -60,6 +66,7 @@ const net = new Net({
   state: onState,
   event: onEvent,
   err: () => {},
+  hand: (cards) => picker.deal(cards),
   status: (online) => {
     clearTimeout(connTimer)
     if (online) conn.classList.remove('on')
@@ -152,6 +159,18 @@ function layout() {
   const cw = Math.min(size * 0.6, 300)
   const chipY = Math.max(topY + topH + 8 + chipH / 2, (topY + topH + (cy - size / 2)) / 2)
   deck.layout({ deck: { x: dx, y: dy, w: dh * 0.72, h: dh }, card: { x: cx, y: cy, w: cw, h: cw * 1.4 }, chip: { x: cx, y: chipY } })
+  // The pick-a-card button sits beside the deck (below it when the deck is in a side gutter).
+  const hb = handBtn.style
+  const hs = 56
+  if (!landscape) {
+    hb.left = dx + dh * 0.36 + 28 - 0 + 'px'
+    hb.top = dy - hs / 2 + 'px'
+  } else {
+    hb.left = dx - hs / 2 + 'px'
+    hb.top = dy + dh / 2 + 32 + 'px'
+  }
+  hb.width = hb.height = hs + 'px'
+  picker.layout()
   laidN = n
   if (snap) render(snap, snap)
   requestAnimationFrame(() => {
@@ -170,6 +189,7 @@ let discSize = 44
 // ---- render: snapshot -> view ----
 
 function ringMode(s: Snapshot | null): RingMode {
+  if (picker.open) return 'recede'
   if (!s) return 'idle'
   switch (s.phase) {
     case 'idle':
@@ -271,7 +291,11 @@ function onEvent(e: ServerEvent) {
       ring.setLit(false)
       takeover.hide()
       if (s.phase === 'idle' || s.phase === 'over') audio.play('start')
-      void deck.deal()
+      if (picker.pending && performance.now() - picker.pendingAt < 2500) {
+        // Our own pick: it's already face up in the middle.
+        deck.presentPicked(picker.pending)
+        picker.handoff()
+      } else void deck.deal()
       break
     case 'reveal':
       deck.reveal()
@@ -388,6 +412,7 @@ function onBoom(loser: string | null, out: boolean) {
 
 ring.onPress = (k) => {
   audio.unlock()
+  if (picker.open) return
   const s = snap
   if (!s || s.phase !== 'play') return ring.nudge(k.ch)
   if (k.used || pending.has(k.ch)) return
@@ -428,6 +453,21 @@ roster.onOrder = (ids) => {
 pop.onAdd = (name) => net.send({ t: 'add', name })
 pop.onRemove = (id) => net.send({ t: 'remove', id })
 pop.onRename = (id, name) => net.send({ t: 'rename', id, name })
+
+handBtn.addEventListener('click', () => {
+  audio.unlock()
+  anim(handBtn, [{ transform: 'scale(1)' }, { transform: 'scale(.86) rotate(-8deg)', offset: 0.3 }, { transform: 'scale(1)' }], { duration: 320, easing: E.out, fill: 'none' })
+  picker.show()
+})
+picker.onRequest = () => net.send({ t: 'hand', size: 12 })
+picker.onPick = (c) => net.send({ t: 'pick', cat: c.cat })
+picker.onOpenChange = () => {
+  pop.close()
+  ring.setMode(ringMode(snap))
+}
+picker.onFail = () =>
+  anim(handBtn, [{ translate: '0 0' }, { translate: '-6px 0' }, { translate: '6px 0' }, { translate: '-3px 0' }, { translate: '0 0' }], { duration: 300, easing: 'linear', fill: 'none' })
+picker.target3d = () => deck.cardRect()
 
 deck.onDraw = () => {
   audio.unlock()

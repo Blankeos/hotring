@@ -1158,3 +1158,202 @@ svg {
 #stage[data-phase='over'] #deck {
   z-index: 22;
 }
+
+/* ---------- pick-a-card: button + held hand ---------- */
+
+#handbtn {
+  position: absolute;
+  z-index: 6;
+  border-radius: 50%;
+  background: #2b2252;
+  color: var(--cream);
+  display: grid;
+  place-items: center;
+  box-shadow:
+    0 4px 0 #1b1535,
+    0 8px 14px rgba(0, 0, 0, 0.35),
+    inset 0 2px 0 rgba(255, 255, 255, 0.12);
+  transition:
+    transform 0.15s,
+    box-shadow 0.15s;
+}
+#handbtn svg {
+  width: 60%;
+  height: 60%;
+}
+#handbtn:active {
+  transform: translateY(3px);
+  box-shadow:
+    0 1px 0 #1b1535,
+    inset 0 2px 0 rgba(255, 255, 255, 0.12);
+}
+
+#picker {
+  position: fixed;
+  inset: 0;
+  z-index: 33;
+  display: none;
+  background: rgba(13, 10, 24, 0.8);
+  touch-action: none;
+}
+#picker.on {
+  display: block;
+}
+#picker .fan {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.pcard {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--pw);
+  height: var(--ph);
+  will-change: transform;
+  pointer-events: auto;
+}
+.pface {
+  position: absolute;
+  inset: 0;
+  border-radius: calc(var(--pw) * 0.1);
+  background: var(--acc);
+  color: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--pw) * 0.07);
+  padding: calc(var(--pw) * 0.1);
+  box-shadow:
+    0 0 0 2px #130f22,
+    0 6px 0 2px var(--accd);
+}
+.pface .emo {
+  width: 48%;
+  aspect-ratio: 1;
+  flex: none;
+  border-radius: 50%;
+  background: var(--cream);
+  display: grid;
+  place-items: center;
+  font-size: calc(var(--pw) * 0.24);
+  line-height: 1;
+}
+.pface .txt {
+  font-weight: 900;
+  line-height: 1.08;
+  text-align: center;
+  text-wrap: balance;
+  letter-spacing: -0.01em;
+}
+.pcard.hot .pface,
+#fly .front.hot {
+  box-shadow:
+    0 0 0 2px #130f22,
+    0 6px 0 2px var(--accd, #a03a28),
+    inset 0 0 0 calc(var(--pw, var(--cw)) * 0.03) #ffd23f;
+}
+.flame {
+  position: absolute;
+  top: 5%;
+  right: 6%;
+  font-size: calc(var(--pw, var(--cw)) * 0.13);
+  line-height: 1;
+}
+#fly .front .flame {
+  display: none;
+}
+#fly .front.hot .flame {
+  display: block;
+}
+#chip .pill .flame {
+  display: none;
+  position: static;
+  font-size: 15px;
+  margin-left: -2px;
+}
+#chip .pill.hot .flame {
+  display: inline;
+}
+#chip .pill.hot {
+  box-shadow: inset 0 0 0 2px #ffd23f;
+}
+#picker.picking .pcard:not(.focus) {
+  opacity: 0 !important;
+  transition: opacity 0.25s;
+}
+#picker .pbtn {
+  position: absolute;
+  z-index: 200;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: #2b2252;
+  color: var(--cream);
+  display: grid;
+  place-items: center;
+  box-shadow:
+    0 4px 0 #1b1535,
+    inset 0 2px 0 rgba(255, 255, 255, 0.12);
+}
+#picker .pbtn svg {
+  width: 46%;
+  height: 46%;
+}
+#picker .pbtn:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #1b1535;
+}
+#picker .shuf {
+  left: calc(50% - 26px);
+}
+#picker .close {
+  top: calc(env(safe-area-inset-top) + 12px);
+  right: calc(env(safe-area-inset-right) + 12px);
+  width: 44px;
+  height: 44px;
+}
+#picker .waitcards {
+  --dw: calc(var(--pw) * 0.5);
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  display: none;
+}
+#picker.waiting .waitcards {
+  display: block;
+}
+#picker .waitcards .cardback {
+  inset: auto;
+  left: calc(var(--dw) / -2);
+  top: calc(var(--dw) * -0.7);
+  width: var(--dw);
+  height: calc(var(--dw) * 1.4);
+  animation: waitcard 0.9s ease-in-out infinite;
+}
+#picker .waitcards .cardback:nth-child(1) {
+  --r: -14deg;
+  --x: -40%;
+}
+#picker .waitcards .cardback:nth-child(2) {
+  --r: 0deg;
+  --x: 0%;
+  animation-delay: 0.15s;
+}
+#picker .waitcards .cardback:nth-child(3) {
+  --r: 14deg;
+  --x: 40%;
+  animation-delay: 0.3s;
+}
+@keyframes waitcard {
+  0%,
+  100% {
+    transform: translateX(var(--x)) rotate(var(--r)) translateY(0);
+  }
+  50% {
+    transform: translateX(var(--x)) rotate(var(--r)) translateY(-12px);
+  }
+}

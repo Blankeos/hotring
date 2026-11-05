@@ -1,11 +1,12 @@
 // WebSocket transport: typed messages, auto-reconnect with backoff, rejoin on every (re)connect.
 import { roomCode } from './room'
-import type { ClientMsg, ServerEvent, ServerMsg, Snapshot } from '../shared/protocol'
+import type { ClientMsg, HandCard, ServerEvent, ServerMsg, Snapshot } from '../shared/protocol'
 
 export interface NetHandlers {
   state(s: Snapshot): void
   event(e: ServerEvent): void
   err(msg: string): void
+  hand(cards: HandCard[]): void
   status(online: boolean): void
 }
 
@@ -88,6 +89,7 @@ export class Net {
         this.h.state(msg.s)
       } else if (msg.t === 'ev') this.h.event(msg.e)
       else if (msg.t === 'err') this.h.err(msg.msg)
+      else if (msg.t === 'hand') this.h.hand(msg.cards)
     }
     ws.onclose = () => {
       if (this.ws !== ws) return

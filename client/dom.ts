@@ -53,6 +53,8 @@ export function initial(name: string) {
 }
 
 export const ICON = {
+  shuffle: sv('<path d="M3.5 7h3.2c2 0 3.2 1 4.3 2.8l2 3.4c1.1 1.8 2.3 2.8 4.3 2.8h3.2"/><path d="M3.5 17h3.2c1.3 0 2.2-.4 3-1.2M20.5 7h-3.2c-1.3 0-2.2.4-3 1.2"/><path d="M18 4.5 20.5 7 18 9.5M18 14.5l2.5 2.5-2.5 2.5"/>'),
+  hand: '<svg viewBox="0 0 32 32" aria-hidden="true"><rect x="5.5" y="8" width="11" height="16" rx="2.4" transform="rotate(-18 11 16)" fill="currentColor" opacity=".45"/><rect x="15.5" y="8" width="11" height="16" rx="2.4" transform="rotate(18 21 16)" fill="currentColor" opacity=".45"/><rect x="10.5" y="6" width="11" height="17" rx="2.4" fill="currentColor"/></svg>',
   reset: sv('<path d="M5 12a7 7 0 1 0 2.2-5.1"/><path d="M4.6 3.8v4.4H9"/>'),
   plus: sv('<path d="M12 5.5v13M5.5 12h13"/>'),
   x: sv('<path d="M7 7l10 10M17 7L7 17"/>'),
