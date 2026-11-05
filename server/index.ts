@@ -38,13 +38,14 @@ const server = Bun.serve<WsData>({
     '/': index,
     '/api/lan': () => Response.json({ ips: lanAddresses(), port: PORT }),
   },
-  fetch(req, server) {
+  async fetch(req, server) {
     const url = new URL(req.url)
     if (url.pathname === '/ws') {
       return server.upgrade(req, { data: { id: null } }) ? undefined : new Response('upgrade failed', { status: 400 })
     }
     if (url.pathname.startsWith('/sfx/') && !url.pathname.includes('..')) {
       const f = Bun.file(join(PUBLIC, url.pathname))
+      if (!(await f.exists())) return new Response('not found', { status: 404 })
       return new Response(f, { headers: { 'cache-control': 'public, max-age=3600' } })
     }
     return new Response('not found', { status: 404 })

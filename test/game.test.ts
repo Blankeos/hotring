@@ -129,13 +129,16 @@ describe('game', () => {
     expect(snap(b).players.find((p) => p.id === a)!.online).toBe(true)
   })
 
-  test('late joiners spectate; host moves when host leaves in lobby', () => {
-    const { game, snap } = setup()
+  test('late joiners spectate; host moves when host leaves in lobby', async () => {
+    const { game, snap } = setup({ lobbyGraceMs: 30 })
     g = game
     const a = game.join(undefined, 'Ana')
     const b = game.join(undefined, 'Ben')
     game.disconnect(a)
     expect(snap(b).host).toBe(b)
+    expect(snap(b).players.length).toBe(2) // seat held during grace
+    await sleep(60)
+    expect(snap(b).players.length).toBe(1)
     const c = game.join(undefined, 'Cy')
     game.handle(b, { t: 'start' })
     expect(snap(c).players.length).toBe(2)

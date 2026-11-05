@@ -19,6 +19,7 @@ export interface GameOptions {
   fuseMax: number
   boomMs: number // how long the boom screen holds before game over is decided
   idleResetMs: number // nobody online for this long -> back to lobby
+  lobbyGraceMs: number // a lobby player who drops (reload, sleep) keeps their seat this long
   random: () => number
 }
 
@@ -29,6 +30,7 @@ export const DEFAULTS: GameOptions = {
   fuseMax: 34_000,
   boomMs: 2600,
   idleResetMs: 30_000,
+  lobbyGraceMs: 20_000,
   random: Math.random,
 }
 
@@ -106,9 +108,14 @@ export class Game {
     if (!p) return
     p.online = false
     if (this.phase === 'lobby') {
-      // Nobody to wait for in the lobby: drop them so the roster stays tidy.
-      this.players = this.players.filter((x) => x !== p)
-      this.emit({ type: 'left', id })
+      // Phones sleep and tabs reload: hold the seat briefly, then tidy the roster.
+      this.later(this.opts.lobbyGraceMs, () => {
+        if (p.online || this.phase !== 'lobby') return
+        this.players = this.players.filter((x) => x !== p)
+        this.emit({ type: 'left', id })
+        this.fixHost()
+        this.broadcast()
+      })
     } else if (this.phase === 'play' && this.turn === id) {
       const next = this.nextActive(id, true)
       if (next && next !== id) {
@@ -129,7 +136,7 @@ export class Game {
     switch (msg.t) {
       case 'start':
         if (id !== this.host || this.phase !== 'lobby') return
-        if (this.activePlayers().length < 2) return this.err(id, 'Need 2 players')
+        if (this.activePlayers().filter((x) => x.online).length < 2) return this.err(id, 'Need 2 players')
         this.round = 0
         this.draw(null)
         break
