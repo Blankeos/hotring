@@ -101,7 +101,10 @@ function layout() {
   const bottom = H - Math.max(ins.b, 12) - 8
   // Roster between the two corner icons: one row, or two rows of bigger discs when crowded.
   const n = snap?.players.length ?? 0
-  const items = Math.min(n + 1, MAX_PLAYERS)
+  const resetShown = showReset(snap)
+  laidReset = resetShown
+  roster.setReset(resetShown)
+  const items = Math.min(n + 1, MAX_PLAYERS) + (resetShown ? 1 : 0)
   const avail = W - ins.l - ins.r - 2 * (8 + 44 + 8)
   const gap = 8
   let perRow = items
@@ -159,6 +162,9 @@ function layout() {
 let lastH = 0
 let fuseDeadline = 0
 let laidN = -1
+let laidReset = false
+/** Reset-lives control: only when there is something to reset. */
+const showReset = (s: Snapshot | null) => !!s && s.players.length > 0 && (s.phase === 'over' || s.players.some((p) => p.marks > 0 || p.out))
 let discSize = 44
 
 // ---- render: snapshot -> view ----
@@ -181,7 +187,7 @@ deck.onStage = () => ring.setMode(ringMode(snap))
 function render(s: Snapshot, p: Snapshot | null) {
   const phase = s.phase
   stage.dataset.phase = phase
-  if (s.players.length !== laidN) return layout()
+  if (s.players.length !== laidN || showReset(s) !== laidReset) return layout()
   roster.sync(s.players, { turn: s.turn, winner: s.winner, phase, size: discSize })
   if (pop.target && !player(pop.target)) pop.close()
   remotesEl.innerHTML = s.remotes > 1 ? '<i></i>'.repeat(Math.min(6, s.remotes)) : ''
@@ -249,6 +255,11 @@ function onEvent(e: ServerEvent) {
       break
     case 'added':
       audio.play('join')
+      break
+    case 'reset':
+      takeover.hide()
+      roster.resetFx()
+      audio.play('refill')
       break
     case 'removed':
       audio.play('ui', { gain: 0.6 })
@@ -408,6 +419,8 @@ roster.onOpen = (id) => {
   audio.play('ui', { gain: 0.6 })
   pop.openPlayer(p, () => roster.rect(id))
 }
+roster.onArm = () => audio.play('ui', { gain: 0.7 })
+roster.onReset = () => net.send({ t: 'reset' })
 roster.onOrder = (ids) => {
   audio.play('ui', { gain: 0.6 })
   net.send({ t: 'order', ids })

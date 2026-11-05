@@ -53,6 +53,7 @@ export function initial(name: string) {
 }
 
 export const ICON = {
+  reset: sv('<path d="M5 12a7 7 0 1 0 2.2-5.1"/><path d="M4.6 3.8v4.4H9"/>'),
   plus: sv('<path d="M12 5.5v13M5.5 12h13"/>'),
   x: sv('<path d="M7 7l10 10M17 7L7 17"/>'),
   crown:

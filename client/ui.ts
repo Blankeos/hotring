@@ -59,6 +59,71 @@ export class Roster {
     this.add.type = 'button'
     this.add.setAttribute('aria-label', 'add player')
     this.add.addEventListener('click', () => this.onAdd(this.add.getBoundingClientRect()))
+    // Reset lives: quiet, and two taps on purpose (arm, then confirm within 3 s).
+    this.resetWrap = h('div', 'pl resetwrap', this.el)
+    this.resetBtn = h('button', 'disc reset', this.resetWrap, ICON.reset)
+    this.resetBtn.type = 'button'
+    this.resetBtn.setAttribute('aria-label', 'reset lives')
+    this.resetBtn.addEventListener('click', () => {
+      if (this.armed) {
+        this.disarm()
+        this.onReset()
+        return
+      }
+      this.armed = true
+      this.resetBtn.classList.add('armed')
+      this.resetBtn.setAttribute('aria-label', 'tap again to reset lives')
+      this.onArm()
+      anim(this.resetBtn, [{ transform: 'scale(.8) rotate(0)' }, { transform: 'scale(1.05) rotate(-200deg)', offset: 0.6 }, { transform: 'scale(1) rotate(-180deg)' }], {
+        duration: 420,
+        easing: E.out,
+        fill: 'none',
+      })
+      clearTimeout(this.armT)
+      this.armT = setTimeout(() => this.disarm(), 3000)
+    })
+  }
+
+  private resetWrap: HTMLDivElement
+  private resetBtn: HTMLButtonElement
+  private armed = false
+  private armT: ReturnType<typeof setTimeout> | undefined
+  onReset: () => void = () => {}
+  onArm: () => void = () => {}
+
+  private disarm() {
+    clearTimeout(this.armT)
+    this.armed = false
+    this.resetBtn.classList.remove('armed')
+    this.resetBtn.setAttribute('aria-label', 'reset lives')
+  }
+
+  setReset(show: boolean) {
+    this.resetWrap.classList.toggle('on', show)
+    if (!show) this.disarm()
+  }
+
+  /** Lives back: pips empty in a wave, crosses dissolve, a sparkle on every disc. */
+  resetFx() {
+    let i = 0
+    for (const it of this.items.values()) {
+      const k = i++
+      it.pips.forEach((p, j) => {
+        if (!p.classList.contains('on')) return
+        anim(p, [{ transform: 'scale(1)', opacity: 1 }, { transform: 'scale(1.8)', opacity: 1, offset: 0.35 }, { transform: 'scale(0)', opacity: 0 }], {
+          duration: 380,
+          delay: k * 50 + j * 40,
+          easing: E.out,
+          fill: 'backwards',
+        })
+      })
+      if (it.el.classList.contains('out'))
+        anim(it.cross, [{ transform: 'scale(1) rotate(0)', opacity: 1 }, { transform: 'scale(1.5) rotate(25deg)', opacity: 0 }], { duration: 420, delay: k * 50, easing: E.in, fill: 'backwards' })
+      setTimeout(() => {
+        const r = it.disc.getBoundingClientRect()
+        if (r.width) this.fx.stars(r.left + r.width / 2, r.top + r.height / 2, { colors: [CREAM, '#FFD23F'], n: 4, radius: r.width * 0.7, size: [4, 8] })
+      }, k * 50)
+    }
   }
 
   sync(players: PlayerView[], o: { turn: string | null; winner: string | null; phase: Phase; size: number }) {
