@@ -47,7 +47,18 @@ export function centerOf(el: Element) {
 const sv = (body: string, vb = '0 0 24 24') =>
   `<svg viewBox="${vb}" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`
 
+export function initial(name: string) {
+  const ch = [...name.trim()][0]
+  return ch ? ch.toUpperCase() : '?'
+}
+
 export const ICON = {
+  plus: sv('<path d="M12 5.5v13M5.5 12h13"/>'),
+  x: sv('<path d="M7 7l10 10M17 7L7 17"/>'),
+  crown:
+    '<svg viewBox="0 0 64 40" aria-hidden="true"><path d="M6 34 3 8l16 12L32 2l13 18L61 8l-3 26z" fill="currentColor" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/></svg>',
+  cross:
+    '<svg viewBox="0 0 100 100" aria-hidden="true"><path d="M22 22 78 78M78 22 22 78" stroke="currentColor" stroke-width="14" stroke-linecap="round"/></svg>',
   sound: sv('<path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z" fill="currentColor" stroke-width="2"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6M18.2 6.4a8 8 0 0 1 0 11.2"/>'),
   mute: sv('<path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z" fill="currentColor" stroke-width="2"/><path d="M16 9.5l5 5M21 9.5l-5 5"/>'),
   qr: sv(

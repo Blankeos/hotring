@@ -138,27 +138,288 @@ svg {
   opacity: 0.35;
 }
 /* Alone in the lobby: the share button asks to be tapped. */
-#presence {
-  flex: 1;
-  min-width: 0;
+/* ---------- roster (players on the table) ---------- */
+
+#top .icon {
+  position: absolute;
+  top: 0;
+}
+#top .icon:first-child {
+  left: 0;
+}
+#top .icon.share {
+  right: 0;
+}
+#remotes {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  transform: translateX(-50%);
   display: flex;
+  gap: 2px;
+}
+#remotes i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--cream);
+}
+
+#roster {
+  position: absolute;
+  top: 12px;
+  display: flex;
+  flex-wrap: wrap;
   justify-content: center;
+  column-gap: 8px;
+  row-gap: 10px;
+}
+.pl {
+  position: relative;
+  width: var(--a);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+.pl .disc {
+  position: relative;
+  isolation: isolate;
+  width: var(--a);
+  height: var(--a);
+  border-radius: 50%;
+  background: var(--c);
+  color: var(--bg);
+  display: grid;
+  place-items: center;
+  font-size: calc(var(--a) * 0.48);
+  font-weight: 900;
+  line-height: 1;
+  box-shadow:
+    0 3px 0 var(--cd),
+    inset 0 calc(var(--a) * -0.07) 0 rgba(0, 0, 0, 0.16),
+    inset 0 2px 0 rgba(255, 255, 255, 0.35);
+  transition:
+    transform 0.4s var(--spring),
+    background-color 0.3s;
+}
+.pl .disc::before {
+  content: '';
+  position: absolute;
+  left: 22%;
+  top: 9%;
+  width: 56%;
+  height: 26%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  z-index: -1;
+}
+.pl .disc:active {
+  transform: translateY(2px) scale(0.94);
+}
+.pl.turn .disc {
+  transform: translateY(-2px) scale(1.14);
+}
+.pl.out .disc {
+  color: var(--muted);
+}
+.pl .cross {
+  position: absolute;
+  inset: -12%;
+  color: var(--hot);
+  opacity: 0;
+  pointer-events: none;
+}
+.pl.out .cross {
+  opacity: 1;
+}
+.pl .crown {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% - 12px);
+  width: 72%;
+  height: calc(var(--a) * 0.45);
+  color: var(--gold);
+  opacity: 0;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.pl.win .crown {
+  opacity: 1;
+}
+.pl .pips {
+  display: flex;
+  gap: 3px;
+}
+.pl .pip {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px rgba(243, 236, 221, 0.25);
+}
+.pl .pip.on {
+  background: var(--hot);
+  box-shadow: none;
+}
+.pl.out .pip.on {
+  background: #6b2a36;
+}
+.addwrap .disc.add {
+  background: transparent;
+  color: var(--cream);
+  opacity: 0.45;
+  box-shadow: inset 0 0 0 2px rgba(243, 236, 221, 0.35);
+  transform: scale(0.8);
+}
+.addwrap .disc.add::before {
+  display: none;
+}
+.addwrap .disc.add svg {
+  width: 50%;
+  height: 50%;
+}
+#roster.empty .addwrap .disc.add {
+  opacity: 0.6;
+}
+.addwrap.full {
+  display: none;
+}
+#roster .halo {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(var(--a) * 1.14 + 12px);
+  height: calc(var(--a) * 1.14 + 12px);
+  margin: calc((var(--a) * 1.14 + 12px) / -2) 0 0 calc((var(--a) * 1.14 + 12px) / -2);
+  border-radius: 50%;
+  border: 3px solid var(--hc);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform 0.38s var(--spring),
+    opacity 0.3s,
+    border-color 0.3s;
+}
+#roster .halo.on {
+  opacity: 1;
+}
+#stage[data-phase='play'] #roster .halo.on {
+  animation: halopulse 1.2s ease-in-out infinite;
+}
+@keyframes halopulse {
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* ---------- popover: add / edit a player ---------- */
+
+#pop {
+  position: fixed;
+  z-index: 45;
+  display: none;
+  padding: 8px;
+  border-radius: 32px;
+  background: #2b2252;
+  box-shadow:
+    0 4px 0 #1b1535,
+    0 12px 28px rgba(0, 0, 0, 0.5),
+    inset 0 2px 0 rgba(255, 255, 255, 0.1);
+}
+#pop.on {
+  display: block;
+}
+#pop .nub {
+  position: absolute;
+  top: -6px;
+  left: var(--nub, 50%);
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  background: #2b2252;
+  transform: rotate(45deg);
+  border-radius: 3px;
+}
+#pop .row {
+  position: relative;
+  display: flex;
   align-items: center;
   gap: 8px;
 }
-#presence .dot {
-  flex: none;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--c);
+#pop input {
+  width: 168px;
+  height: 44px;
+  border: 0;
+  outline: 0;
+  border-radius: 22px;
+  padding: 0 16px;
+  background: #110c21;
+  color: var(--cream);
+  font: inherit;
+  font-size: 18px;
+  font-weight: 800;
+  box-shadow: inset 0 3px 6px rgba(0, 0, 0, 0.6);
+  -webkit-user-select: text;
+  user-select: text;
+  touch-action: manipulation;
 }
-#presence .dot.me {
-  width: 14px;
-  height: 14px;
+#pop input::placeholder {
+  color: var(--muted);
+}
+#pop .name {
+  height: 44px;
+  max-width: 200px;
+  padding: 0 16px;
+  border-radius: 22px;
+  background: var(--c);
+  color: var(--bg);
+  font-size: 18px;
+  font-weight: 900;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   box-shadow:
-    0 0 0 2px var(--bg),
-    0 0 0 4px var(--c);
+    0 3px 0 rgba(0, 0, 0, 0.35),
+    inset 0 2px 0 rgba(255, 255, 255, 0.3);
+}
+#pop .go,
+#pop .del {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  box-shadow:
+    0 3px 0 rgba(0, 0, 0, 0.35),
+    inset 0 2px 0 rgba(255, 255, 255, 0.3);
+}
+#pop .go {
+  background: var(--cream);
+  color: var(--bg);
+}
+#pop .del {
+  background: var(--hot);
+  color: var(--cream);
+  margin-left: 16px;
+}
+#pop .go svg,
+#pop .del svg {
+  width: 22px;
+  height: 22px;
+}
+#pop .go:active,
+#pop .del:active,
+#pop .name:active {
+  transform: translateY(2px);
+}
+#pop[data-mode='add'] .name,
+#pop[data-mode='add'] .del,
+#pop[data-mode='player'] input,
+#pop[data-mode='player'] .go,
+#pop[data-mode='rename'] .name,
+#pop[data-mode='rename'] .del {
+  display: none;
 }
 
 /* ---------- the instrument ---------- */
@@ -228,7 +489,8 @@ svg {
     inset 0 2px 0 rgba(255, 255, 255, 0.12);
 }
 .r-well {
-  background: #0c0818;
+  background: var(--turn, #0c0818);
+  transition: background-color 0.35s;
   box-shadow:
     inset 0 calc(var(--S) * 0.014) calc(var(--S) * 0.02) rgba(0, 0, 0, 0.9),
     0 2px 0 rgba(255, 255, 255, 0.08);
@@ -290,6 +552,42 @@ svg {
 }
 #ring:not(.lit) .r-emoji {
   opacity: 0.5;
+}
+#ring.named .r-emoji {
+  display: none;
+}
+.r-label {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+#ring.named .r-label {
+  display: flex;
+}
+.r-name {
+  max-width: 88%;
+  color: #fff;
+  font-weight: 900;
+  line-height: 1;
+  text-align: center;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.3);
+}
+.r-crown {
+  display: none;
+  width: 34%;
+  height: calc(var(--lens) * 0.2);
+  margin-bottom: 4%;
+  color: var(--gold);
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.3));
+}
+#ring.crowned .r-crown {
+  display: block;
 }
 
 /* keys: hole, extruded skirt, domed cap */

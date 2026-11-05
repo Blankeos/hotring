@@ -1,6 +1,7 @@
-// hotring client: one shared table. Wires the network, the ring instrument, the deck,
-// presence and the effects. Snapshots are the truth; `ev` events fire one-shot juice.
-import type { ServerEvent, Snapshot } from '../shared/protocol'
+// hotring client: one shared table, players live on the table (any phone is a remote).
+// Wires the network, the ring instrument, the deck, the roster and the effects.
+// Snapshots are the truth; `ev` events fire one-shot juice.
+import { MAX_PLAYERS, type PlayerView, type ServerEvent, type Snapshot } from '../shared/protocol'
 import { Audio } from './audio'
 import { Deck } from './deck'
 import { E, ICON, anim, clamp, h, reduced } from './dom'
@@ -8,7 +9,7 @@ import { Fx } from './fx'
 import { Net } from './net'
 import { CREAM, GOLD, HOT, pc } from './palette'
 import { Ring, type RingMode } from './ring'
-import { Presence, Share } from './ui'
+import { Pop, Roster, Share } from './ui'
 
 const ID_KEY = 'hotring.id'
 
@@ -41,10 +42,13 @@ const top = h('div', '', stage)
 top.id = 'top'
 const muteBtn = h('button', 'icon', top)
 muteBtn.type = 'button'
-const presence = new Presence(top, fx)
-const shareBtn = h('button', 'icon', top, ICON.qr)
+const roster = new Roster(top, fx)
+const shareBtn = h('button', 'icon share', top, ICON.qr)
 shareBtn.type = 'button'
 shareBtn.setAttribute('aria-label', 'share')
+const remotesEl = h('div', '', shareBtn)
+remotesEl.id = 'remotes'
+const pop = new Pop(document.body)
 const conn = h('div', '', stage)
 conn.id = 'conn'
 const share = new Share(document.body)
@@ -69,9 +73,10 @@ let boomAt = 0
 const pending = new Map<string, number>() // optimistic presses: letter -> time
 let readyTimer: ReturnType<typeof setTimeout> | undefined
 
+const player = (id: string | null | undefined): PlayerView | undefined => (id ? snap?.players.find((p) => p.id === id) : undefined)
 const colorOf = (id: string | null | undefined) => {
-  const d = id ? snap?.devices.find((x) => x.id === id) : undefined
-  return d ? pc(d.color) : CREAM
+  const p = player(id)
+  return p ? pc(p.color) : CREAM
 }
 
 // ---- layout ----
@@ -83,13 +88,34 @@ function layout() {
   const cs = getComputedStyle(probe)
   const ins = { t: parseFloat(cs.paddingTop) || 0, r: parseFloat(cs.paddingRight) || 0, b: parseFloat(cs.paddingBottom) || 0, l: parseFloat(cs.paddingLeft) || 0 }
   const W = innerWidth
-  const H = innerHeight
+  // While a name is being typed, keep the table still under the on-screen keyboard.
+  const typing = document.activeElement?.tagName === 'INPUT'
+  const H = typing && lastH ? lastH : innerHeight
+  lastH = H
   fx.resize()
   const left = ins.l + 8
   const right = W - ins.r - 8
   const topY = ins.t + 8
   const bottom = H - Math.max(ins.b, 12) - 8
-  const topH = 44
+  // Roster between the two corner icons: one row, or two rows of bigger discs when crowded.
+  const n = snap?.players.length ?? 0
+  const items = Math.min(n + 1, MAX_PLAYERS)
+  const avail = W - ins.l - ins.r - 2 * (8 + 44 + 8)
+  const gap = 8
+  let perRow = items
+  let a = Math.min(44, (avail - (perRow - 1) * gap) / perRow)
+  if (a < 30) {
+    perRow = Math.ceil(items / 2)
+    a = Math.min(44, (avail - (perRow - 1) * gap) / perRow)
+  }
+  a = Math.floor(a)
+  discSize = a
+  const rows = Math.ceil(items / perRow)
+  const rosterH = 12 + rows * (a + 13) + (rows - 1) * 10
+  const rs = roster.el.style
+  rs.width = perRow * a + (perRow - 1) * gap + 'px'
+  rs.left = (W - ins.l - ins.r - 16) / 2 - (perRow * a + (perRow - 1) * gap) / 2 + 'px'
+  const topH = Math.max(44, rosterH)
   const chipH = 44
   top.style.left = ins.l + 8 + 'px'
   top.style.right = ins.r + 8 + 'px'
@@ -121,8 +147,16 @@ function layout() {
   const cw = Math.min(size * 0.6, 300)
   const chipY = Math.max(topY + topH + 8 + chipH / 2, (topY + topH + (cy - size / 2)) / 2)
   deck.layout({ deck: { x: dx, y: dy, w: dh * 0.72, h: dh }, card: { x: cx, y: cy, w: cw, h: cw * 1.4 }, chip: { x: cx, y: chipY } })
+  laidN = n
   if (snap) render(snap, snap)
+  requestAnimationFrame(() => {
+    roster.placeHalo()
+    pop.place()
+  })
 }
+let lastH = 0
+let laidN = -1
+let discSize = 44
 
 // ---- render: snapshot -> view ----
 
@@ -144,7 +178,14 @@ deck.onStage = () => ring.setMode(ringMode(snap))
 function render(s: Snapshot, p: Snapshot | null) {
   const phase = s.phase
   stage.dataset.phase = phase
-  presence.sync(s.devices, s.you)
+  if (s.players.length !== laidN) return layout()
+  roster.sync(s.players, { turn: s.turn, winner: s.winner, phase, size: discSize })
+  if (pop.target && !player(pop.target)) pop.close()
+  remotesEl.innerHTML = s.remotes > 1 ? '<i></i>'.repeat(Math.min(6, s.remotes)) : ''
+
+  // who holds the fuse: big on the lens
+  const holder = phase === 'over' ? player(s.winner) : phase === 'boom' ? (player(s.loser) ?? player(s.turn)) : player(s.turn)
+  ring.setTurn(holder ? { id: holder.id, name: holder.name, color: pc(holder.color) } : null, phase === 'over')
 
   ring.sync(s.letters)
   ring.setMode(ringMode(s))
@@ -166,7 +207,7 @@ function render(s: Snapshot, p: Snapshot | null) {
   // The deck is always live: anyone can shuffle a fresh category.
   deck.setInteractive(true)
   const sinceBoom = boomAt ? performance.now() - boomAt : 1e9
-  const invite = phase === 'idle' || (phase === 'boom' && sinceBoom > 900)
+  const invite = phase === 'idle' || phase === 'over' || (phase === 'boom' && sinceBoom > 900)
   deck.setReady(invite)
   clearTimeout(readyTimer)
   if (phase === 'boom' && !invite) readyTimer = setTimeout(() => snap && render(snap, snap), 920 - sinceBoom)
@@ -196,16 +237,20 @@ function onEvent(e: ServerEvent) {
   if (!s) return
   switch (e.type) {
     case 'joined':
-      if (e.id !== s.you) audio.play('join', { gain: 0.7 })
-      break
     case 'left':
+      break
+    case 'added':
+      audio.play('join')
+      break
+    case 'removed':
+      audio.play('ui', { gain: 0.6 })
       break
     case 'deal':
       dealAt = performance.now()
       pending.clear()
       ring.calm()
       ring.setLit(false)
-      if (s.phase === 'idle') audio.play('start')
+      if (s.phase === 'idle' || s.phase === 'over') audio.play('start')
       void deck.deal()
       break
     case 'reveal':
@@ -217,14 +262,20 @@ function onEvent(e: ServerEvent) {
       break
     case 'tap': {
       const col = colorOf(e.by)
-      const mine = e.by === s.you && pending.has(e.letter)
-      if (mine) {
+      if (pending.has(e.letter)) {
+        // We pressed it here already; just confirm.
         pending.delete(e.letter)
         ring.hold(e.letter, 0)
       } else if (ring.press(e.letter, col)) audio.tap(0.75)
       else ring.ripple(e.letter, col)
-      presence.hop(e.by)
       ring.relight(col)
+      // The fuse travels to whoever is next.
+      if (e.next && e.next !== e.by) {
+        const from = ring.pos(e.letter)
+        const to = ring.lensCenter()
+        fx.comet(from.x, from.y, to.x, to.y, colorOf(e.next), 260)
+        audio.play('whoosh', { gain: 0.4, rate: 0.95 + Math.random() * 0.15 })
+      }
       break
     }
     case 'tick':
@@ -239,7 +290,10 @@ function onEvent(e: ServerEvent) {
       }, 260)
       break
     case 'boom':
-      onBoom()
+      onBoom(e.loser, e.out)
+      break
+    case 'win':
+      onWin(e.winner)
       break
   }
 }
@@ -260,10 +314,36 @@ function shake(power: number) {
   anim(stage, kf, { duration: 700, easing: 'linear', fill: 'none' })
 }
 
-function onBoom() {
+function onWin(id: string) {
+  const col = colorOf(id)
+  audio.play('win')
+  fx.confetti([col, col, CREAM, GOLD], 4200)
+  setTimeout(() => {
+    const c = ring.lensCenter()
+    fx.burst(c.x, c.y, { colors: [col, GOLD, CREAM], n: 90, speed: [150, 640], g: 120, streak: 0.3, radius: ring.lensR * 0.6 })
+    fx.shock(c.x, c.y, GOLD, ring.lensR * 3, 0.8, 6)
+    const d = roster.center(id)
+    if (d) fx.stars(d.x, d.y - discSize * 0.6, { colors: [GOLD, CREAM], n: 10, radius: discSize })
+  }, 250)
+}
+
+function onBoom(loser: string | null, out: boolean) {
   boomAt = performance.now()
   pending.clear()
   audio.play('boom')
+  if (out) audio.play('out', { delay: 1100 })
+  roster.pipDelay = 650
+  if (loser) {
+    ring.flashName()
+    const col = colorOf(loser)
+    setTimeout(() => {
+      const d = roster.center(loser)
+      if (d) {
+        fx.burst(d.x, d.y, { colors: [col, HOT, CREAM], n: 34, speed: [80, 300], size: [2, 4], g: 80, life: [0.4, 0.8] })
+        fx.shock(d.x, d.y, HOT, discSize * 1.3, 0.5, 4)
+      }
+    }, 650)
+  }
   navigator.vibrate?.([70, 40, 220])
   anim(flash, [{ opacity: reduced ? 0.4 : 0.95 }, { opacity: 0 }], { duration: 500, easing: E.out })
   shake(18)
@@ -287,8 +367,8 @@ ring.onPress = (k) => {
   pending.set(k.ch, performance.now())
   net.send({ t: 'tap', letter: k.ch })
   ring.hold(k.ch, 1500)
-  const me = colorOf(s.you)
-  ring.press(k.ch, me)
+  // A tap counts for whoever holds the fuse: tint it their colour.
+  ring.press(k.ch, colorOf(s.turn))
   audio.tap()
   navigator.vibrate?.(10)
   const ch = k.ch
@@ -298,6 +378,23 @@ ring.onPress = (k) => {
     ring.unhold(ch, snap.letters.find((l) => l.ch === ch)?.used ?? false)
   }, 1600)
 }
+
+roster.onAdd = () => {
+  audio.unlock()
+  if (pop.mode === 'add') return pop.close()
+  pop.openAdd(() => roster.addRect())
+}
+roster.onOpen = (id) => {
+  audio.unlock()
+  const p = player(id)
+  if (!p) return
+  if (pop.target === id) return pop.close()
+  audio.play('ui', { gain: 0.6 })
+  pop.openPlayer(p, () => roster.rect(id))
+}
+pop.onAdd = (name) => net.send({ t: 'add', name })
+pop.onRemove = (id) => net.send({ t: 'remove', id })
+pop.onRename = (id, name) => net.send({ t: 'rename', id, name })
 
 deck.onDraw = () => {
   audio.unlock()

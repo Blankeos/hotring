@@ -50,3 +50,10 @@ export function rgbOf(color: string): [number, number, number] {
   const m = color.match(/\d+/g) ?? ['255', '255', '255']
   return [Number(m[0]), Number(m[1]), Number(m[2])]
 }
+
+/** Flat darker shade of a color (for the extruded side of discs and keys). */
+export function shade(color: string, k = 0.38): string {
+  const [r, g, b] = rgbOf(color)
+  const f = (v: number) => Math.round(v * (1 - k))
+  return `rgb(${f(r)},${f(g)},${f(b)})`
+}

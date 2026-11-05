@@ -1,7 +1,7 @@
 // The instrument: a chunky round base with a raised rim, a recessed channel holding
 // 20 domed keys (each with an extruded skirt), and a raised hub with a glowing lens.
 // Depth comes from stacked flat shapes and hard offsets, not gradients.
-import { E, anim, clamp, h, reduced } from './dom'
+import { E, ICON, anim, clamp, h, reduced } from './dom'
 import type { Fx } from './fx'
 import { CREAM, heatColor } from './palette'
 
@@ -31,6 +31,10 @@ export class Ring {
   private glow: HTMLDivElement
   private lens: HTMLDivElement
   private emoji: HTMLDivElement
+  private label: HTMLDivElement
+  private nameEl: HTMLDivElement
+  private crownEl: HTMLDivElement
+  private who: string | null = null
   private keys: Key[] = []
   private by = new Map<string, Key>()
   cx = 0
@@ -58,6 +62,9 @@ export class Ring {
     this.lens = h('div', 'r-lens', this.el)
     h('div', 'r-sheen', this.lens)
     this.emoji = h('div', 'r-emoji', this.lens)
+    this.label = h('div', 'r-label', this.lens)
+    this.crownEl = h('div', 'r-crown', this.label, ICON.crown)
+    this.nameEl = h('div', 'r-name', this.label)
     h('div', 'r-glint', this.lens)
     this.keysEl = h('div', 'r-keys', this.el)
   }
@@ -164,6 +171,58 @@ export class Ring {
       this.emoji.textContent = e ?? ''
       if (e) anim(this.emoji, [{ transform: 'scale(.3)', opacity: 0 }, { transform: 'scale(1.15)', opacity: 1, offset: 0.6 }, { transform: 'scale(1)', opacity: 1 }], { duration: 520, easing: E.out })
     }
+  }
+
+  /**
+   * Who holds the fuse: their name big on the lens, their colour on the bezel around it.
+   * null: no roster, the lens shows the category emoji instead.
+   */
+  setTurn(p: { id: string; name: string; color: string } | null, crown = false) {
+    this.el.classList.toggle('named', !!p)
+    this.el.classList.toggle('crowned', !!p && crown)
+    this.el.style.setProperty('--turn', p ? p.color : '#0c0818')
+    const key = p ? p.id + '|' + p.name : null
+    if (key === this.who) return
+    const first = this.who === null
+    this.who = key
+    if (!p) return
+    const apply = () => {
+      this.nameEl.textContent = p.name
+      const len = Math.max(3, [...p.name].length)
+      const D = this.lensR * 2
+      this.nameEl.style.fontSize = Math.min(D * 0.25, (D * 0.86) / (len * 0.6)) + 'px'
+    }
+    if (first) {
+      apply()
+      anim(this.label, [{ transform: 'scale(.3)', opacity: 0 }, { transform: 'scale(1.1)', opacity: 1, offset: 0.6 }, { transform: 'scale(1)', opacity: 1 }], { duration: 420, easing: E.out })
+      return
+    }
+    // Turn passes: squash out, swap, spring in.
+    anim(
+      this.label,
+      [
+        { transform: 'scale(1)', opacity: 1 },
+        { transform: 'scale(.4,.6)', opacity: 0, offset: 0.35, easing: E.in },
+        { transform: 'scale(1.12)', opacity: 1, offset: 0.7, easing: E.out },
+        { transform: 'scale(1)', opacity: 1 },
+      ],
+      { duration: 380, easing: 'linear' },
+    )
+    setTimeout(() => this.who === key && apply(), 130)
+  }
+
+  /** Big flash of the name on the lens (boom). */
+  flashName() {
+    anim(
+      this.label,
+      [
+        { transform: 'scale(2.2) rotate(-6deg)', opacity: 0 },
+        { transform: 'scale(.9) rotate(2deg)', opacity: 1, offset: 0.45, easing: E.out },
+        { transform: 'scale(1.06)', offset: 0.7 },
+        { transform: 'scale(1)', opacity: 1 },
+      ],
+      { duration: 700, delay: 120, easing: 'linear', fill: 'backwards' },
+    )
   }
 
   /** Fuse burning or not: the lens wakes up or goes dark. */
