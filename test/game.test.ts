@@ -238,4 +238,28 @@ describe('rounds', () => {
     expect(snap(r).winner).toBeNull()
     expect(snap(r).players.length).toBe(2)
   })
+
+  test('a hand of cards goes to the asker only; picking draws that exact card and removes it from the deck', async () => {
+    const inbox = new Map<string, ServerMsg[]>()
+    const game = new Game((id, m) => inbox.set(id, [...(inbox.get(id) ?? []), m]), { cardMs: 60, revealMs: 30, drawGapMs: 0 })
+    g = game
+    const a = game.join(undefined)
+    const b = game.join(undefined)
+    game.handle(a, { t: 'hand', size: 8 })
+    const hands = (id: string) =>
+      (inbox.get(id) ?? []).flatMap((m) => (m.t === 'hand' ? [m.cards] : []))
+    expect(hands(b).length).toBe(0)
+    const [cards] = hands(a)
+    expect(cards!.length).toBe(8)
+    expect(new Set(cards!.map((c) => c.cat)).size).toBe(8)
+    const want = cards![3]!
+    game.handle(b, { t: 'pick', cat: want.cat })
+    const last = [...(inbox.get(a) ?? [])].reverse().find((m) => m.t === 'state') as { s: Snapshot }
+    expect(last.s.phase).toBe('card')
+    expect(last.s.card!.text).toBe(want.text)
+    game.handle(a, { t: 'hand', size: 12 })
+    expect(hands(a)[1]!.some((c) => c.cat === want.cat)).toBe(false) // already used
+    game.handle(a, { t: 'pick', cat: 99999 }) // bogus index ignored
+    expect(last.s.card!.text).toBe(want.text)
+  })
 })

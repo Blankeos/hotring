@@ -26,6 +26,7 @@ export interface PlayerView {
 export interface CategoryCard {
   emoji: string
   text: string
+  hot?: boolean // spicy category
   /** Increments every draw so clients can replay the shuffle/flip animation. */
   n: number
 }
@@ -60,6 +61,8 @@ export type ClientMsg =
   | { t: 'add'; name: string } // anyone: add a player to the table
   | { t: 'remove'; id: string } // anyone: remove a player
   | { t: 'rename'; id: string; name: string }
+  | { t: 'hand'; size?: number } // ask for a hand of shuffled cards to browse (answered to the asker only)
+  | { t: 'pick'; cat: number } // draw that specific category (an index from a hand)
   | { t: 'reset' } // everyone back to full lives (marks 0, nobody out); a finished game goes back to idle
   | { t: 'order'; ids: string[] } // drag and drop: the new player order (turn order)
 
@@ -79,7 +82,15 @@ export type ServerEvent =
   | { type: 'boom'; loser: string | null; out: boolean }
   | { type: 'win'; winner: string }
 
+export interface HandCard {
+  cat: number // pass back in `pick`
+  emoji: string
+  text: string
+  hot?: boolean
+}
+
 export type ServerMsg =
   | { t: 'state'; s: Snapshot }
+  | { t: 'hand'; cards: HandCard[] }
   | { t: 'ev'; e: ServerEvent }
   | { t: 'err'; msg: string }

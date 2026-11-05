@@ -5,6 +5,7 @@ import {
   MAX_PLAYERS,
   type CategoryCard,
   type ClientMsg,
+  type HandCard,
   type Phase,
   type PlayerView,
   type ServerEvent,
@@ -100,6 +101,12 @@ export class Game {
     switch (msg.t) {
       case 'draw':
         this.draw()
+        break
+      case 'hand':
+        this.send(id, { t: 'hand', cards: this.hand(Math.min(20, Math.max(3, Math.floor(msg.size ?? 12)))) })
+        break
+      case 'pick':
+        if (Number.isInteger(msg.cat) && CATEGORIES[msg.cat]) this.draw(msg.cat)
         break
       case 'tap':
         this.tap(msg.letter)
@@ -197,7 +204,7 @@ export class Game {
 
   // ---- flow ----
 
-  private draw() {
+  private draw(cat?: number) {
     const now = Date.now()
     if (now - this.lastDraw < this.opts.drawGapMs || this.overPending) return
     this.lastDraw = now
@@ -220,7 +227,7 @@ export class Game {
     }
     this.loser = this.winner = null
     this.phase = 'card'
-    this.card = this.nextCard()
+    this.card = this.nextCard(cat)
     this.used.clear()
     this.taps = 0
     this.lit = false
@@ -314,16 +321,39 @@ export class Game {
     return null
   }
 
-  private nextCard(): CategoryCard {
-    if (this.deck.length === 0) {
-      this.deck = CATEGORIES.map((_, i) => i)
-      for (let i = this.deck.length - 1; i > 0; i--) {
-        const j = Math.floor(this.opts.random() * (i + 1))
-        ;[this.deck[i], this.deck[j]] = [this.deck[j]!, this.deck[i]!]
-      }
+  private reshuffle() {
+    this.deck = CATEGORIES.map((_, i) => i)
+    for (let i = this.deck.length - 1; i > 0; i--) {
+      const j = Math.floor(this.opts.random() * (i + 1))
+      ;[this.deck[i], this.deck[j]] = [this.deck[j]!, this.deck[i]!]
     }
-    const [emoji, text] = CATEGORIES[this.deck.pop()!]!
-    return { emoji, text, n: ++this.cardN }
+  }
+
+  /** `cat` picks a specific card (and takes it out of the deck so it won't come around again soon). */
+  private nextCard(cat?: number): CategoryCard {
+    if (this.deck.length === 0) this.reshuffle()
+    let idx: number
+    if (cat !== undefined) {
+      idx = cat
+      const at = this.deck.indexOf(cat)
+      if (at >= 0) this.deck.splice(at, 1)
+    } else idx = this.deck.pop()!
+    const [emoji, text, hot] = CATEGORIES[idx]!
+    return { emoji, text, ...(hot ? { hot: true } : {}), n: ++this.cardN }
+  }
+
+  /** A random handful from what's left of the deck (not consumed until one is picked). */
+  private hand(size: number): HandCard[] {
+    if (this.deck.length < size) this.reshuffle()
+    const pool = [...this.deck]
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(this.opts.random() * (i + 1))
+      ;[pool[i], pool[j]] = [pool[j]!, pool[i]!]
+    }
+    return pool.slice(0, size).map((cat) => {
+      const [emoji, text, hot] = CATEGORIES[cat]!
+      return { cat, emoji, text, ...(hot ? { hot: true } : {}) }
+    })
   }
 
   private freeColor(): number {
