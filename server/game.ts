@@ -1,11 +1,9 @@
 import {
   LETTERS,
-  MAX_MARKS,
-  MAX_NAME,
   type CategoryCard,
   type ClientMsg,
+  type Device,
   type Phase,
-  type PlayerView,
   type ServerEvent,
   type ServerMsg,
   type Snapshot,
@@ -13,200 +11,142 @@ import {
 import { CATEGORIES } from './categories'
 
 export interface GameOptions {
-  cardMs: number // how long the shuffle + reveal takes before the fuse is lit
+  cardMs: number // shuffle + reveal before the ring goes live
   revealMs: number // when within the card phase the card flips
-  fuseMin: number
+  fuseMin: number // each letter tap lights a fresh hidden fuse in this range
   fuseMax: number
-  boomMs: number // how long the boom screen holds before game over is decided
-  idleResetMs: number // nobody online for this long -> back to lobby
-  lobbyGraceMs: number // a lobby player who drops (reload, sleep) keeps their seat this long
+  drawGapMs: number // ignore draws closer together than this (two phones tapping at once)
   random: () => number
 }
 
 export const DEFAULTS: GameOptions = {
   cardMs: 3400,
   revealMs: 1700,
-  fuseMin: 14_000,
-  fuseMax: 34_000,
-  boomMs: 2600,
-  idleResetMs: 30_000,
-  lobbyGraceMs: 20_000,
+  fuseMin: 5000,
+  fuseMax: 10_000,
+  drawGapMs: 700,
   random: Math.random,
 }
 
 const COLORS = 12
 
-interface Player {
-  id: string
-  name: string
-  color: number
-  marks: number
-  out: boolean
-  online: boolean
-}
+type Send = (deviceId: string, msg: ServerMsg) => void
 
-type Send = (playerId: string, msg: ServerMsg) => void
-
+/** One shared table. Everyone connected sees the same ring and can tap or draw. */
 export class Game {
   readonly opts: GameOptions
   private send: Send
-  private players: Player[] = []
-  private phase: Phase = 'lobby'
-  private host = ''
+  private devices: (Device & { online: boolean })[] = []
+  private phase: Phase = 'idle'
   private card: CategoryCard | null = null
   private cardN = 0
   private deck: number[] = []
   private used = new Set<string>()
-  private turn: string | null = null
-  private loser: string | null = null
-  private winner: string | null = null
-  private round = 0
+  private taps = 0
+  private lit = false
   private cardUntil: number | null = null
+  private revealAt: number | null = null
   private fuseStart = 0
   private fuseLen = 0
-  private timers = new Set<ReturnType<typeof setTimeout>>()
-  private idleTimer: ReturnType<typeof setTimeout> | null = null
-  private boomAt = 0
+  private lastDraw = 0
+  private cardTimers = new Set<ReturnType<typeof setTimeout>>()
+  private fuseTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(send: Send, opts: Partial<GameOptions> = {}) {
     this.send = send
     this.opts = { ...DEFAULTS, ...opts }
   }
 
-  // ---- connection lifecycle (called by the transport) ----
-
-  /** Returns the player id for this connection (existing on reconnect, new otherwise). */
-  join(id: string | undefined, rawName: string): string {
-    this.clearIdle()
-    const name = rawName.trim().slice(0, MAX_NAME)
-    let p = id ? this.players.find((x) => x.id === id) : undefined
-    if (p) {
-      p.online = true
-      if (name) p.name = name
-    } else {
-      const newId = id && /^[\w-]{6,40}$/.test(id) ? id : crypto.randomUUID()
-      p = {
-        id: newId,
-        name: name || `Player ${this.players.length + 1}`,
-        color: this.freeColor(),
-        marks: 0,
-        // Late joiners watch until the next game.
-        out: this.phase !== 'lobby',
-        online: true,
-      }
-      if (p.out) p.marks = MAX_MARKS
-      this.players.push(p)
-      this.emit({ type: 'joined', id: p.id })
+  join(id: string | undefined): string {
+    let d = id ? this.devices.find((x) => x.id === id) : undefined
+    if (d) d.online = true
+    else {
+      d = { id: id && /^[\w-]{6,40}$/.test(id) ? id : crypto.randomUUID(), color: this.freeColor(), online: true }
+      this.devices.push(d)
     }
-    this.fixHost()
+    this.emit({ type: 'joined', id: d.id })
     this.broadcast()
-    return p.id
+    return d.id
   }
 
   disconnect(id: string) {
-    const p = this.players.find((x) => x.id === id)
-    if (!p) return
-    p.online = false
-    if (this.phase === 'lobby') {
-      // Phones sleep and tabs reload: hold the seat briefly, then tidy the roster.
-      this.later(this.opts.lobbyGraceMs, () => {
-        if (p.online || this.phase !== 'lobby') return
-        this.players = this.players.filter((x) => x !== p)
-        this.emit({ type: 'left', id })
-        this.fixHost()
-        this.broadcast()
-      })
-    } else if (this.phase === 'play' && this.turn === id) {
-      const next = this.nextActive(id, true)
-      if (next && next !== id) {
-        this.turn = next
-        this.emit({ type: 'skip', next })
-      }
+    const d = this.devices.find((x) => x.id === id)
+    if (!d) return
+    d.online = false
+    // Nobody left: the table resets so the next party starts clean.
+    if (!this.devices.some((x) => x.online)) {
+      this.devices = []
+      this.clearAll()
+      this.phase = 'idle'
+      this.card = null
+      this.used.clear()
+      this.taps = 0
+      this.lit = false
+      this.cardUntil = this.revealAt = null
+      return
     }
-    this.fixHost()
-    if (!this.players.some((x) => x.online)) this.scheduleIdleReset()
+    this.devices = this.devices.filter((x) => x.online)
+    this.emit({ type: 'left', id })
     this.broadcast()
   }
 
-  // ---- messages ----
-
   handle(id: string, msg: ClientMsg) {
-    const p = this.players.find((x) => x.id === id)
-    if (!p) return
+    if (!this.devices.some((x) => x.id === id)) return
     switch (msg.t) {
-      case 'start':
-        if (id !== this.host || this.phase !== 'lobby') return
-        if (this.activePlayers().filter((x) => x.online).length < 2) return this.err(id, 'Need 2 players')
-        this.round = 0
-        this.draw(null)
-        break
       case 'draw':
-        if (id !== this.host) return
-        if (this.phase === 'card') this.draw(this.turn)
-        else if (this.phase === 'boom' && Date.now() - this.boomAt > 1200 && this.activePlayers().length > 1)
-          this.draw(this.loser)
+        this.draw()
         break
       case 'tap':
         this.tap(id, msg.letter)
         break
-      case 'again':
-        if (id !== this.host || this.phase !== 'over') return
-        this.reset()
-        break
-      case 'kick': {
-        if (id !== this.host || msg.id === id) return
-        const t = this.players.find((x) => x.id === msg.id)
-        if (!t) return
-        if (this.phase === 'lobby') {
-          this.players = this.players.filter((x) => x !== t)
-          this.send(t.id, { t: 'err', msg: 'removed' })
-          this.emit({ type: 'left', id: t.id })
-        } else {
-          t.out = true
-          t.marks = MAX_MARKS
-          if (this.turn === t.id && this.phase === 'play') this.turn = this.nextActive(t.id, true)
-          this.checkLastStanding()
-        }
-        this.broadcast()
-        break
-      }
     }
   }
 
-  // ---- game flow ----
+  // ---- flow ----
 
-  private draw(starter: string | null) {
-    this.clearTimers()
+  private draw() {
+    const now = Date.now()
+    if (now - this.lastDraw < this.opts.drawGapMs) return
+    this.lastDraw = now
+    this.clearAll()
     this.phase = 'card'
-    this.round++
-    this.loser = null
     this.card = this.nextCard()
     this.used.clear()
-    const act = this.activePlayers()
-    // The loser of the last round starts; if they just went out, the next player does.
-    // First round: random.
-    this.turn = starter
-      ? act.some((x) => x.id === starter)
-        ? starter
-        : this.nextActive(starter, false)
-      : act[Math.floor(this.opts.random() * act.length)]!.id
-    this.cardUntil = Date.now() + this.opts.cardMs
+    this.taps = 0
+    this.lit = false
+    this.cardUntil = now + this.opts.cardMs
+    this.revealAt = now + this.opts.revealMs
     this.emit({ type: 'deal' })
-    this.later(this.opts.revealMs, () => {
-      this.emit({ type: 'reveal' })
+    this.cardLater(this.opts.revealMs, () => this.emit({ type: 'reveal' }))
+    this.cardLater(this.opts.cardMs, () => {
+      this.phase = 'play'
+      this.cardUntil = this.revealAt = null
+      this.emit({ type: 'go' })
+      this.broadcast()
     })
-    this.later(this.opts.cardMs, () => this.go())
     this.broadcast()
   }
 
-  private go() {
-    this.phase = 'play'
-    this.cardUntil = null
-    this.fuseStart = Date.now()
-    const { fuseMin, fuseMax, random } = this.opts
-    this.fuseLen = fuseMin + random() * (fuseMax - fuseMin)
-    this.emit({ type: 'go', turn: this.turn! })
+  private tap(id: string, letter: string) {
+    if (this.phase !== 'play' || !LETTERS.includes(letter) || this.used.has(letter)) return
+    this.used.add(letter)
+    this.taps++
+    this.emit({ type: 'tap', letter, by: id })
+    if (this.used.size >= LETTERS.length) {
+      this.used.clear()
+      this.emit({ type: 'refill' })
+    }
+    this.lightFuse()
     this.broadcast()
+  }
+
+  /** Every tap restarts the hidden fuse. */
+  private lightFuse() {
+    if (this.fuseTimer) clearTimeout(this.fuseTimer)
+    const { fuseMin, fuseMax, random } = this.opts
+    this.fuseStart = Date.now()
+    this.fuseLen = fuseMin + random() * (fuseMax - fuseMin)
+    this.lit = true
     this.tickLoop()
   }
 
@@ -216,87 +156,20 @@ export class Game {
     if (elapsed >= this.fuseLen) return this.boom()
     const heat = Math.min(1, elapsed / this.fuseLen)
     this.emit({ type: 'tick', heat })
-    // 650ms between ticks when cold, ~170ms when about to blow.
-    const gap = Math.max(170, 650 - 480 * heat ** 1.4)
-    this.later(Math.min(gap, this.fuseLen - elapsed), () => this.tickLoop())
-  }
-
-  private tap(id: string, letter: string) {
-    if (this.phase !== 'play' || this.turn !== id) return
-    if (!LETTERS.includes(letter) || this.used.has(letter)) return
-    this.used.add(letter)
-    const next = this.nextActive(id, true) ?? id
-    this.turn = next
-    this.emit({ type: 'tap', letter, by: id, next })
-    if (this.used.size >= LETTERS.length) {
-      this.used.clear()
-      this.emit({ type: 'refill' })
-    }
-    this.broadcast()
+    // 600ms between ticks when cold, ~160ms when about to blow.
+    const gap = Math.max(160, 600 - 440 * heat ** 1.3)
+    this.fuseTimer = setTimeout(() => this.tickLoop(), Math.min(gap, this.fuseLen - elapsed))
   }
 
   private boom() {
-    const loser = this.players.find((x) => x.id === this.turn)
-    this.clearTimers()
+    this.fuseTimer = null
     this.phase = 'boom'
-    this.boomAt = Date.now()
-    if (loser) {
-      loser.marks++
-      if (loser.marks >= MAX_MARKS) loser.out = true
-      this.loser = loser.id
-      this.emit({ type: 'boom', loser: loser.id, out: loser.out })
-    }
-    this.broadcast()
-    this.later(this.opts.boomMs, () => this.checkLastStanding())
-  }
-
-  private checkLastStanding() {
-    if (this.phase !== 'boom' && this.phase !== 'play') return
-    const act = this.activePlayers()
-    if (act.length > 1) return
-    this.clearTimers()
-    this.phase = 'over'
-    this.winner = act[0]?.id ?? this.loser
-    this.turn = null
-    if (this.winner) this.emit({ type: 'win', winner: this.winner })
-    this.broadcast()
-  }
-
-  private reset() {
-    this.clearTimers()
-    this.phase = 'lobby'
-    this.card = null
-    this.turn = null
-    this.loser = null
-    this.winner = null
-    this.round = 0
-    this.cardUntil = null
-    this.used.clear()
-    this.players = this.players.filter((p) => p.online)
-    for (const p of this.players) {
-      p.marks = 0
-      p.out = false
-    }
-    this.fixHost()
+    this.lit = false
+    this.emit({ type: 'boom' })
     this.broadcast()
   }
 
   // ---- helpers ----
-
-  private activePlayers() {
-    return this.players.filter((p) => !p.out)
-  }
-
-  /** Next player after `from` in turn order who is still in (and online, if asked). */
-  private nextActive(from: string, onlineOnly: boolean): string | null {
-    const n = this.players.length
-    const start = this.players.findIndex((p) => p.id === from)
-    for (let i = 1; i <= n; i++) {
-      const p = this.players[(start + i + n) % n]
-      if (p && !p.out && (!onlineOnly || p.online)) return p.id
-    }
-    return null
-  }
 
   private nextCard(): CategoryCard {
     if (this.deck.length === 0) {
@@ -311,51 +184,28 @@ export class Game {
   }
 
   private freeColor(): number {
-    const taken = new Set(this.players.map((p) => p.color))
+    const taken = new Set(this.devices.map((d) => d.color))
     for (let c = 0; c < COLORS; c++) if (!taken.has(c)) return c
-    return this.players.length % COLORS
+    return this.devices.length % COLORS
   }
 
-  private fixHost() {
-    const cur = this.players.find((p) => p.id === this.host)
-    if (cur?.online) return
-    this.host = (this.players.find((p) => p.online) ?? this.players[0])?.id ?? ''
-  }
-
-  private later(ms: number, fn: () => void) {
+  private cardLater(ms: number, fn: () => void) {
     const t = setTimeout(() => {
-      this.timers.delete(t)
+      this.cardTimers.delete(t)
       fn()
     }, ms)
-    this.timers.add(t)
+    this.cardTimers.add(t)
   }
 
-  private clearTimers() {
-    for (const t of this.timers) clearTimeout(t)
-    this.timers.clear()
-  }
-
-  private scheduleIdleReset() {
-    this.clearIdle()
-    this.idleTimer = setTimeout(() => {
-      if (this.players.some((p) => p.online)) return
-      this.players = []
-      this.deck = []
-      this.reset()
-    }, this.opts.idleResetMs)
-  }
-
-  private clearIdle() {
-    if (this.idleTimer) clearTimeout(this.idleTimer)
-    this.idleTimer = null
-  }
-
-  private err(id: string, msg: string) {
-    this.send(id, { t: 'err', msg })
+  private clearAll() {
+    for (const t of this.cardTimers) clearTimeout(t)
+    this.cardTimers.clear()
+    if (this.fuseTimer) clearTimeout(this.fuseTimer)
+    this.fuseTimer = null
   }
 
   private emit(e: ServerEvent) {
-    for (const p of this.players) if (p.online) this.send(p.id, { t: 'ev', e })
+    for (const d of this.devices) if (d.online) this.send(d.id, { t: 'ev', e })
   }
 
   snapshot(forId: string): Snapshot {
@@ -363,32 +213,21 @@ export class Game {
       phase: this.phase,
       now: Date.now(),
       you: forId,
-      host: this.host,
-      players: this.players.map<PlayerView>(({ id, name, color, marks, out, online }) => ({
-        id,
-        name,
-        color,
-        marks,
-        out,
-        online,
-      })),
+      devices: this.devices.filter((d) => d.online).map(({ id, color }) => ({ id, color })),
       card: this.card,
       letters: LETTERS.map((ch) => ({ ch, used: this.used.has(ch) })),
-      turn: this.turn,
-      loser: this.loser,
-      winner: this.winner,
-      round: this.round,
+      taps: this.taps,
+      lit: this.lit,
       cardUntil: this.cardUntil,
+      revealAt: this.revealAt,
     }
   }
 
   broadcast() {
-    for (const p of this.players) if (p.online) this.send(p.id, { t: 'state', s: this.snapshot(p.id) })
+    for (const d of this.devices) if (d.online) this.send(d.id, { t: 'state', s: this.snapshot(d.id) })
   }
 
-  /** Stop all timers (tests, shutdown). */
   dispose() {
-    this.clearTimers()
-    this.clearIdle()
+    this.clearAll()
   }
 }

@@ -1,25 +1,19 @@
-// Wire protocol shared by server and client. The server is authoritative:
-// it sends a full `state` snapshot after every change, plus one-shot `ev`
-// events so clients can fire animations and sounds.
+// Wire protocol shared by server and client. One shared table per room: no names, no turns.
+// The server is authoritative: it sends a full `state` snapshot after every change, plus
+// one-shot `ev` events so clients can fire animations and sounds.
 
 export const LETTERS = 'ABCDEFGHIJKLMNOPRSTW'.split('') as readonly string[]
-export const MAX_MARKS = 3
-export const MAX_NAME = 14
 
 export type Phase =
-  | 'lobby' // waiting for players, host starts
-  | 'card' // deck shuffles, category card is revealed (fuse not lit yet)
-  | 'play' // fuse is lit, players tap letters
-  | 'boom' // fuse blew, loser shown
-  | 'over' // one player left standing
+  | 'idle' // nothing drawn yet, the deck invites a tap
+  | 'card' // deck shuffles, category card is revealed (ring locked)
+  | 'play' // ring live. The hidden fuse is lit by each tap (not before the first one)
+  | 'boom' // the fuse ran out; tap the deck for the next card
 
-export interface PlayerView {
+/** A phone at the table. Only a color, so taps can be tinted per phone. */
+export interface Device {
   id: string
-  name: string
-  color: number // index into the client palette (0-11)
-  marks: number // rounds lost, out at MAX_MARKS
-  out: boolean
-  online: boolean
+  color: number // palette index 0-11
 }
 
 export interface CategoryCard {
@@ -31,44 +25,40 @@ export interface CategoryCard {
 
 export interface Snapshot {
   phase: Phase
-  /** Server clock (ms) when this snapshot was made, for clock-offset estimates. */
+  /** Server clock (ms) when this snapshot was made. */
   now: number
-  you: string // the receiving player's id
-  host: string // player id that can start / draw
-  players: PlayerView[] // join order = turn order, clockwise
+  you: string // the receiving device's id
+  devices: Device[] // online phones, join order
   card: CategoryCard | null
-  /** letters still available this round, in ring order (index 0 = top, clockwise). */
+  /** letters in ring order (index 0 = top, clockwise). */
   letters: { ch: string; used: boolean }[]
-  turn: string | null // player id whose turn it is
-  loser: string | null // set during 'boom'
-  winner: string | null // set during 'over'
-  round: number // 1-based
-  /** Deadline (server ms) for the 'card' phase to end, so the client can pace the animation. */
+  /** Letter taps this round (drives intensity). */
+  taps: number
+  /** Whether the fuse is currently burning (a tap has happened and it hasn't blown). */
+  lit: boolean
+  /** Server deadline (ms) for the 'card' phase to end. */
   cardUntil: number | null
+  /** Server time (ms) the card flips face up; null outside the card phase. */
+  revealAt: number | null
 }
 
 // ---- client -> server ----
 export type ClientMsg =
-  | { t: 'join'; id?: string; name: string }
-  | { t: 'start' } // host, lobby -> first card
-  | { t: 'draw' } // host, draw/redraw a category card (lobby is not valid; boom and card are)
-  | { t: 'tap'; letter: string } // current player only
-  | { t: 'again' } // host, over -> lobby (marks reset)
-  | { t: 'kick'; id: string } // host
+  | { t: 'join'; id?: string }
+  | { t: 'tap'; letter: string } // anyone, in 'play'
+  | { t: 'draw' } // anyone, any phase: shuffle and draw a new category card
 
 // ---- server -> client ----
 export type ServerEvent =
   | { type: 'joined'; id: string }
   | { type: 'left'; id: string }
-  | { type: 'deal' } // a new card is drawn: play the shuffle sound/animation
+  | { type: 'deal' } // new card drawn: play the shuffle sound/animation
   | { type: 'reveal' } // card flips face up
-  | { type: 'go'; turn: string } // fuse lit, round starts
-  | { type: 'tap'; letter: string; by: string; next: string }
-  | { type: 'skip'; next: string } // turn holder dropped offline, turn moves on
-  | { type: 'tick'; heat: number } // 0..1, fuse tick; frequency rises with heat
-  | { type: 'refill' } // all letters used, ring refills
-  | { type: 'boom'; loser: string; out: boolean }
-  | { type: 'win'; winner: string }
+  | { type: 'go' } // card phase over, ring is live
+  | { type: 'tap'; letter: string; by: string }
+  | { type: 'tick'; heat: number } // 0..1 since the last tap; ticks quicken as heat rises
+  | { type: 'refill' } // all 20 used, ring refills (fuse keeps burning)
+  | { type: 'boom' }
 
 export type ServerMsg =
   | { t: 'state'; s: Snapshot }

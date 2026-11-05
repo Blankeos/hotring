@@ -26,7 +26,7 @@ export class Hub {
       return
     }
     if (msg.t === 'join') {
-      const id = this.game.join(msg.id, String(msg.name ?? ''))
+      const id = this.game.join(msg.id)
       // A new tab for the same player replaces the old socket.
       const old = this.socks.get(id)
       if (old && old !== sock) {
