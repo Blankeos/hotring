@@ -1,6 +1,12 @@
 // Pick-a-card: a held hand of category cards fanned along the bottom. Swipe / drag /
 // wheel / arrows scroll it with momentum; the centred card lifts and straightens.
-// Tap it (or flick it up) to pick: it flies to the centre and becomes the round's card.
+// Tap it to pick: it flies to the centre and becomes the round's card.
+//
+// Vertical drags are live and finger-tracked (axis-locked after a small deadzone):
+//   down: the whole hand sinks and flattens with the finger; past a threshold it's "committed"
+//         (haptic tick), and letting go there puts the hand away. Before it, it springs back.
+//   up:   the focused card rises toward the middle while the rest fall away; past the threshold
+//         it locks in (tick + accent ring) and letting go picks it. A quick flick counts too.
 import type { HandCard } from '../shared/protocol'
 import type { Audio } from './audio'
 import { E, ICON, anim, h, reduced } from './dom'
@@ -9,8 +15,38 @@ import { accentFor, shade } from './palette'
 interface PCard {
   c: HandCard
   el: HTMLDivElement
+  ring: HTMLDivElement
+  dim: HTMLDivElement
   born: number
 }
+
+/** A value that follows the finger while dragging and springs (slightly bouncy) when let go. */
+class Spring {
+  v = 0
+  w = 0
+  target = 0
+  held = false
+  step(dt: number) {
+    if (this.held) return false
+    const s = Math.min(dt, 32) / 1000
+    this.w += (170 * (this.target - this.v) - 19 * this.w) * s
+    this.v += this.w * s
+    if (Math.abs(this.target - this.v) < 0.0005 && Math.abs(this.w) < 0.005) {
+      this.v = this.target
+      this.w = 0
+      return false
+    }
+    return true
+  }
+  set(v: number) {
+    this.v = v
+    this.w = 0
+  }
+}
+
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
+/** Past 1 the finger keeps pulling, but with resistance. */
+const rubber = (p: number) => (p <= 1 ? p : 1 + (p - 1) * 0.35)
 
 const ease = (t: number) => 1 - (1 - t) ** 3
 const back = (t: number) => {
@@ -42,7 +78,28 @@ export class Picker {
   private cy = 600
   private spacing = 90
   // drag
-  private drag: { pid: number; x: number; y: number; t: number; pos: number; idx: number; moved: boolean; hist: [number, number][] } | null = null
+  private drag: {
+    pid: number
+    x: number
+    y: number
+    t: number
+    pos: number
+    idx: number
+    moved: boolean
+    axis: 'h' | 'v' | null
+    focus: number // the focused card when the vertical lock happened
+    hist: [number, number, number][] // t, x, y
+  } | null = null
+  // vertical gesture state (progress units: 1 = threshold)
+  private sink = new Spring()
+  private lift = new Spring()
+  private upFocus = -1
+  private downCommit = 0 // eased 0..1 "committed" look
+  private upCommit = 0
+  private downOn = false
+  private upOn = false
+  private thresh = 110
+  private scrim!: HTMLDivElement
   private wheelAcc = 0
   private wheelT: ReturnType<typeof setTimeout> | undefined
   /** The card this phone just picked, until the server's deal arrives. */
@@ -60,6 +117,7 @@ export class Picker {
   ) {
     this.el = h('div', '', parent)
     this.el.id = 'picker'
+    this.scrim = h('div', 'scrim', this.el)
     this.fan = h('div', 'fan', this.el)
     // Face-down placeholder while the server deals the hand.
     const w = h('div', 'waitcards', this.el)
@@ -75,7 +133,11 @@ export class Picker {
     this.el.addEventListener('pointerdown', (e) => this.down(e))
     this.el.addEventListener('pointermove', (e) => this.move(e))
     this.el.addEventListener('pointerup', (e) => this.up(e))
-    this.el.addEventListener('pointercancel', () => (this.drag = null))
+    this.el.addEventListener('pointercancel', () => {
+      // Interrupted: everything springs home.
+      this.drag = null
+      this.release(false, false)
+    })
     this.el.addEventListener(
       'wheel',
       (e) => {
@@ -111,6 +173,7 @@ export class Picker {
     this.el.style.setProperty('--pw', this.w + 'px')
     this.el.style.setProperty('--ph', this.hgt + 'px')
     this.shuf.style.top = H - 64 + 'px'
+    this.thresh = Math.round(Math.max(90, Math.min(150, H * 0.13)))
     if (this.open) this.kick()
   }
 
@@ -119,6 +182,7 @@ export class Picker {
     if (this.open) return
     this.open = true
     this.picking = false
+    this.resetGesture()
     this.layout()
     this.el.classList.add('on')
     anim(this.el, [{ opacity: 0 }, { opacity: 1 }], { duration: 200, fill: 'none' })
@@ -174,8 +238,10 @@ export class Picker {
       const n = c.text.length
       t.style.fontSize = `calc(var(--pw) * ${n > 40 ? 0.084 : n > 28 ? 0.092 : n > 18 ? 0.1 : 0.115})`
       if (c.hot) h('div', 'flame', face, '🔥')
+      const ring = h('div', 'lockring', el)
+      const dim = h('div', 'dim', el)
       el.style.opacity = '0'
-      return { c, el, born: now + i * 45 }
+      return { c, el, ring, dim, born: now + i * 45 }
     })
     this.pos = this.target = Math.floor((cards.length - 1) / 2)
     this.lastIdx = Math.round(this.pos)
@@ -213,7 +279,19 @@ export class Picker {
 
   private down(e: PointerEvent) {
     if (this.picking || (e.target as Element).closest('.pbtn')) return
-    this.drag = { pid: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), pos: this.pos, idx: this.idxOf(e.target), moved: false, hist: [[performance.now(), e.clientX]] }
+    const now = performance.now()
+    this.drag = {
+      pid: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      t: now,
+      pos: this.pos,
+      idx: this.idxOf(e.target),
+      moved: false,
+      axis: null,
+      focus: -1,
+      hist: [[now, e.clientX, e.clientY]],
+    }
     try {
       this.el.setPointerCapture(e.pointerId)
     } catch {
@@ -226,22 +304,49 @@ export class Picker {
     if (!d || e.pointerId !== d.pid) return
     const dx = e.clientX - d.x
     const dy = e.clientY - d.y
-    if (!d.moved && Math.hypot(dx, dy) > 6) d.moved = true
-    if (!d.moved) return
-    if (Math.abs(dx) >= Math.abs(dy) * 0.8 || Math.abs(this.pos - d.pos) > 0.05) {
-      this.pos = this.target = this.clampSoft(d.pos - dx / this.spacing)
-      this.kick()
-    }
-    d.hist.push([performance.now(), e.clientX])
+    d.hist.push([performance.now(), e.clientX, e.clientY])
     if (d.hist.length > 6) d.hist.shift()
+    if (!d.moved && Math.hypot(dx, dy) > 8) {
+      d.moved = true
+      // Axis lock: decided once, kept until the finger lifts.
+      d.axis = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v'
+      if (d.axis === 'v') {
+        // Freeze the scrub on whatever card is focused right now.
+        this.target = this.pos = Math.max(0, Math.min(this.cards.length - 1, Math.round(this.pos)))
+        d.focus = Math.round(this.pos)
+        this.upFocus = d.focus
+        this.sink.held = this.lift.held = true
+      }
+    }
+    if (!d.moved) return
+    if (d.axis === 'h') {
+      this.pos = this.target = this.clampSoft(d.pos - dx / this.spacing)
+    } else {
+      // Progress is live: 1 = threshold. Only one direction is active at a time.
+      const pDown = Math.max(0, dy) / this.thresh
+      const pUp = this.cards[d.focus] ? Math.max(0, -dy) / this.thresh : 0
+      this.sink.set(rubber(pDown))
+      this.lift.set(rubber(pUp))
+      this.setCommit('down', pDown >= 1)
+      this.setCommit('up', pUp >= 1)
+    }
+    this.kick()
+  }
+
+  private setCommit(which: 'down' | 'up', on: boolean) {
+    const was = which === 'down' ? this.downOn : this.upOn
+    if (was === on) return
+    if (which === 'down') this.downOn = on
+    else this.upOn = on
+    // Crossing the line either way is felt and heard.
+    navigator.vibrate?.(on ? 14 : 6)
+    this.audio.play('tap', { gain: on ? 0.5 : 0.25, rate: on ? (which === 'up' ? 1.3 : 0.8) : 1 })
   }
 
   private up(e: PointerEvent) {
     const d = this.drag
     if (!d || e.pointerId !== d.pid) return
     this.drag = null
-    const dx = e.clientX - d.x
-    const dy = e.clientY - d.y
     const dt = performance.now() - d.t
     const n = this.cards.length
     if (!d.moved && dt < 500) {
@@ -251,15 +356,49 @@ export class Picker {
       else this.go(d.idx)
       return
     }
-    if (Math.abs(dy) > Math.abs(dx) * 1.3) {
-      if (dy < -70 && d.idx === Math.round(this.pos)) return this.pick() // flick it up
-      if (dy > 90) return this.hide() // swipe down to put the hand away
+    const [t0, x0, y0] = d.hist[0]!
+    const span = Math.max(16, performance.now() - t0)
+    if (d.axis === 'v') {
+      // A quick flick counts as crossing the line.
+      const vy = (e.clientY - y0) / span // px per ms
+      const flickUp = vy < -0.9 && this.lift.v > 0.25
+      const flickDown = vy > 0.9 && this.sink.v > 0.25
+      return this.release(this.downOn || flickDown, this.upOn || flickUp)
     }
     // Momentum: project with the release velocity, then spring to the nearest card.
-    const [t0, x0] = d.hist[0]!
-    const v = (e.clientX - x0) / Math.max(16, performance.now() - t0) // px per ms
+    const v = (e.clientX - x0) / span
     const proj = this.pos - (v * 260) / this.spacing
     this.go(Math.max(0, Math.min(n - 1, Math.round(proj))))
+  }
+
+  /** Let go of a vertical drag: commit (hide / pick) or spring everything back into the fan. */
+  private release(downGo: boolean, upGo: boolean) {
+    this.sink.held = this.lift.held = false
+    if (downGo) {
+      // Sweep the hand away with the finger's momentum, then close.
+      this.sink.target = 2.4
+      this.sink.w = Math.max(this.sink.w, 6)
+      setTimeout(() => this.hide(), reduced ? 60 : 170)
+    } else if (upGo && this.cards[this.upFocus] && (this.pick(), this.picking)) {
+      this.upOn = true
+    } else {
+      this.sink.target = 0
+      this.lift.target = 0
+      this.downOn = this.upOn = false
+    }
+    this.kick()
+  }
+
+  private resetGesture() {
+    for (const sp of [this.sink, this.lift]) {
+      sp.set(0)
+      sp.target = 0
+      sp.held = false
+    }
+    this.downOn = this.upOn = false
+    this.downCommit = this.upCommit = 0
+    this.upFocus = -1
+    this.scrim.style.opacity = '1'
   }
 
   private clampSoft(p: number) {
@@ -331,12 +470,22 @@ export class Picker {
     const dt = Math.min(50, now - this.last)
     this.last = now
     let busy = false
-    if (!this.drag) {
+    if (this.sink.step(dt)) busy = true
+    if (this.lift.step(dt)) busy = true
+    const k = 1 - Math.exp(-dt / 70)
+    this.downCommit += ((this.downOn ? 1 : 0) - this.downCommit) * k
+    this.upCommit += ((this.upOn ? 1 : 0) - this.upCommit) * k
+    if (Math.abs((this.downOn ? 1 : 0) - this.downCommit) > 0.003 || Math.abs((this.upOn ? 1 : 0) - this.upCommit) > 0.003) busy = true
+    // The backdrop clears as the hand is pulled down.
+    const D = Math.max(0, this.sink.v)
+    this.scrim.style.opacity = String(Math.max(0, Math.min(1, 1 - 0.5 * clamp01(D) - 0.4 * this.downCommit - 0.6 * Math.max(0, D - 1))).toFixed(3))
+    if (!this.drag || this.drag.axis === 'v') {
       const k = 1 - Math.exp(-dt / (reduced ? 40 : 85))
       this.pos += (this.target - this.pos) * k
       if (Math.abs(this.target - this.pos) < 0.001) this.pos = this.target
       else busy = true
     } else busy = true
+    if (this.drag?.axis === 'v') busy = true
     const idx = Math.round(this.pos)
     if (idx !== this.lastIdx && this.cards.length) {
       this.lastIdx = idx
@@ -381,11 +530,62 @@ export class Picker {
 
   private place(c: PCard, o: number, cx: number, e: number, raw: number, H: number) {
     const t = this.fanTransform(o, cx)
-    const y = t.y + (1 - e) * H * 0.55
-    const r = t.r + (1 - e) * (o * 6 - 18)
-    c.el.style.transform = `translate(${(t.x - this.w / 2).toFixed(1)}px,${(y - this.hgt / 2).toFixed(1)}px) rotate(${r.toFixed(2)}deg) scale(${t.s.toFixed(3)})`
-    c.el.style.zIndex = String(100 - Math.round(t.a * 10))
-    c.el.style.opacity = raw <= 0 || t.a > 5.5 ? '0' : '1'
+    let x = t.x
+    let y = t.y + (1 - e) * H * 0.55
+    let r = t.r + (1 - e) * (o * 6 - 18)
+    let s = t.s
+    let sy = 1
+    let op = raw <= 0 || t.a > 5.5 ? 0 : 1
+    let z = 100 - Math.round(t.a * 10)
+    let dim = 0
+
+    // Drag down: the whole hand sinks, the fan closes and flattens, cards shrink and dim.
+    const D = Math.max(0, this.sink.v)
+    if (D > 0.0005) {
+      const d1 = clamp01(D)
+      const cd = this.downCommit
+      x = cx + (x - cx) * (1 - 0.32 * d1 - 0.12 * cd)
+      y += D * this.hgt * 0.5 + cd * this.hgt * 0.08
+      r *= 1 - 0.65 * d1
+      s *= 1 - 0.22 * d1 - 0.06 * cd
+      sy = 1 - 0.18 * cd // flattened, like tilting the hand away
+      // Dim with an ink layer (cards stay opaque, no see-through mess); fade only when swept away.
+      dim = 0.3 * d1 + 0.25 * cd
+      op *= Math.max(0, 1 - 0.8 * Math.max(0, D - 1.1))
+    }
+
+    // Drag up: the focused card rises to the middle; the rest drop away and spread.
+    const U = Math.max(0, this.lift.v)
+    let ring = 0
+    if (U > 0.0005 && this.upFocus >= 0) {
+      const u1 = clamp01(U)
+      const cu = this.upCommit
+      const i = this.cards.indexOf(c)
+      if (i === this.upFocus) {
+        const toY = H * 0.42
+        const ease1 = 1 - (1 - u1) ** 2
+        x += (cx - x) * ease1
+        y += (toY - y) * ease1 - Math.max(0, U - 1) * this.hgt * 0.25
+        r *= 1 - u1
+        s += (1.32 - s) * ease1 + 0.06 * cu
+        z = 200
+        ring = cu
+      } else {
+        const side = Math.sign(i - this.upFocus) || 1
+        x += side * u1 * this.w * 0.55
+        y += U * this.hgt * 0.75
+        r += side * u1 * 10
+        s *= 1 - 0.28 * u1
+        dim = Math.max(dim, 0.35 * u1)
+        op *= Math.max(0, 1 - 0.85 * Math.max(0, u1 - 0.25) / 0.75)
+      }
+    }
+
+    c.el.style.transform = `translate(${(x - this.w / 2).toFixed(1)}px,${(y - this.hgt / 2).toFixed(1)}px) rotate(${r.toFixed(2)}deg) scale(${s.toFixed(3)},${(s * sy).toFixed(3)})`
+    c.el.style.zIndex = String(z)
+    c.el.style.opacity = op.toFixed(3)
+    c.ring.style.opacity = ring.toFixed(3)
+    c.dim.style.opacity = dim.toFixed(3)
     c.el.classList.toggle('focus', t.a < 0.5)
   }
 }

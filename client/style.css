@@ -1193,8 +1193,34 @@ svg {
   inset: 0;
   z-index: 33;
   display: none;
-  background: rgba(13, 10, 24, 0.8);
   touch-action: none;
+  overscroll-behavior: none;
+}
+/* the dimmed backdrop is its own layer so a drag-down can fade it live */
+#picker .scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(13, 10, 24, 0.8);
+  will-change: opacity;
+  pointer-events: none;
+}
+/* flat ink layer used to dim cards while the hand is pulled down (keeps cards opaque) */
+.pcard .dim {
+  position: absolute;
+  inset: 0;
+  border-radius: calc(var(--pw) * 0.1);
+  background: #130f22;
+  opacity: 0;
+  pointer-events: none;
+}
+/* accent ring that fades in when a dragged-up card is locked in */
+.pcard .lockring {
+  position: absolute;
+  inset: -9px;
+  border-radius: calc(var(--pw) * 0.1 + 9px);
+  border: 4px solid var(--acc);
+  opacity: 0;
+  pointer-events: none;
 }
 #picker.on {
   display: block;
