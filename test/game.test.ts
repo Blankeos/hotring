@@ -12,7 +12,7 @@ function setup(opts = {}) {
       l.push(m)
       inbox.set(id, l)
     },
-    { cardMs: 60, revealMs: 30, fuseMin: 150, fuseMax: 150, drawGapMs: 0, random: () => 0, ...opts },
+    { cardMs: 60, revealMs: 30, fuseMin: 150, fuseMax: 150, drawGapMs: 0, overMs: 30, random: () => 0, ...opts },
   )
   const snap = (id: string): Snapshot => {
     const s = [...(inbox.get(id) ?? [])].reverse().find((m) => m.t === 'state')
@@ -25,116 +25,167 @@ function setup(opts = {}) {
 let g: Game | undefined
 afterEach(() => g?.dispose())
 
-describe('shared table', () => {
-  test('anyone draws; card then play; taps locked before play', async () => {
-    const { game, snap, events } = setup({ fuseMin: 5000, fuseMax: 5000 })
-    g = game
-    const a = game.join(undefined)
-    const b = game.join(undefined)
-    expect(snap(a).phase).toBe('idle')
-    game.handle(a, { t: 'tap', letter: 'A' })
-    expect(snap(a).taps).toBe(0)
-    game.handle(b, { t: 'draw' })
-    expect(snap(a).phase).toBe('card')
-    expect(snap(a).card?.text).toBeTruthy()
-    expect(snap(a).revealAt).toBeGreaterThan(Date.now() - 5)
-    game.handle(a, { t: 'tap', letter: 'A' }) // still locked
-    expect(snap(a).taps).toBe(0)
-    await sleep(90)
-    expect(snap(a).phase).toBe('play')
-    expect(snap(a).lit).toBe(false) // fuse not lit before the first tap
-    expect(events(a).map((e) => e.type)).toEqual(expect.arrayContaining(['deal', 'reveal', 'go']))
+function table(opts = {}, names = ['Ana', 'Ben', 'Cy']) {
+  const s = setup(opts)
+  g = s.game
+  const r = s.game.join(undefined)
+  for (const n of names) s.game.handle(r, { t: 'add', name: n })
+  return { ...s, r, ids: () => s.snap(r).players.map((p) => p.id) }
+}
+
+describe('roster', () => {
+  test('anyone adds, renames and removes players; names trimmed; first becomes the turn', () => {
+    const { game, snap, r, ids } = table({}, [])
+    expect(snap(r).players).toEqual([])
+    const r2 = game.join(undefined) // a second phone, same powers
+    game.handle(r2, { t: 'add', name: '  Ana  ' })
+    game.handle(r, { t: 'add', name: '   ' })
+    game.handle(r, { t: 'add', name: 'Ben' })
+    expect(snap(r).players.map((p) => p.name)).toEqual(['Ana', 'Ben'])
+    expect(snap(r).turn).toBe(ids()[0]!)
+    game.handle(r, { t: 'rename', id: ids()[1]!, name: 'Benny' })
+    expect(snap(r2).players[1]!.name).toBe('Benny')
+    game.handle(r2, { t: 'remove', id: ids()[0]! })
+    expect(snap(r).players.length).toBe(1)
+    expect(snap(r).turn).toBe(ids()[0]!) // turn moved to the remaining player
+    expect(snap(r).remotes).toBe(2)
   })
 
-  test('either phone can tap; a letter only once; every tap lights a fresh fuse', async () => {
-    const { game, snap, events } = setup({ fuseMin: 5000, fuseMax: 5000 })
-    g = game
-    const a = game.join(undefined)
-    const b = game.join(undefined)
-    game.handle(a, { t: 'draw' })
-    await sleep(90)
-    game.handle(b, { t: 'tap', letter: 'A' })
-    game.handle(a, { t: 'tap', letter: 'A' }) // already used
-    game.handle(a, { t: 'tap', letter: 'Z' }) // not in ring
-    expect(snap(a).taps).toBe(1)
-    expect(snap(a).lit).toBe(true)
-    game.handle(a, { t: 'tap', letter: 'B' })
-    expect(snap(a).taps).toBe(2)
-    expect(events(a).filter((e) => e.type === 'tap').map((e) => (e as { by: string }).by)).toEqual([b, a])
+  test('roster and marks survive everybody disconnecting; a fresh phone sees them', () => {
+    const { game, snap, r } = table()
+    game.disconnect(r)
+    const r2 = game.join(undefined)
+    expect(snap(r2).players.length).toBe(3)
+    expect(snap(r2).phase).toBe('idle')
   })
 
-  test('fuse runs out -> boom; deck draws the next card', async () => {
-    const { game, snap, events } = setup()
-    g = game
-    const a = game.join(undefined)
-    game.handle(a, { t: 'draw' })
+  test('serialize / restore keeps the roster', () => {
+    const { game } = table()
+    const data = JSON.parse(JSON.stringify(game.serialize()))
+    const s2 = setup()
+    s2.game.restore(data)
+    const r = s2.game.join(undefined)
+    expect(s2.snap(r).players.map((p) => p.name)).toEqual(['Ana', 'Ben', 'Cy'])
+    s2.game.dispose()
+  })
+})
+
+describe('rounds', () => {
+  test('card then play; taps locked before play; no fuse until the first tap', async () => {
+    const { game, snap, events, r } = table({ fuseMin: 5000, fuseMax: 5000 })
+    game.handle(r, { t: 'tap', letter: 'A' })
+    expect(snap(r).taps).toBe(0)
+    game.handle(r, { t: 'draw' })
+    expect(snap(r).phase).toBe('card')
+    expect(snap(r).turn).toBeTruthy() // random()=0 -> first player
+    game.handle(r, { t: 'tap', letter: 'A' })
+    expect(snap(r).taps).toBe(0)
     await sleep(90)
-    game.handle(a, { t: 'tap', letter: 'C' })
+    expect(snap(r).phase).toBe('play')
+    expect(snap(r).lit).toBe(false)
+    expect(events(r).map((e) => e.type)).toEqual(expect.arrayContaining(['deal', 'reveal', 'go']))
+  })
+
+  test('a tap counts for whoever holds the turn, passes it on, and relights the fuse', async () => {
+    const { game, snap, events, r, ids } = table({ fuseMin: 5000, fuseMax: 5000 })
+    const [a, b, c] = ids()
+    game.handle(r, { t: 'draw' })
+    await sleep(90)
+    game.handle(r, { t: 'tap', letter: 'A' })
+    game.handle(r, { t: 'tap', letter: 'A' }) // used
+    game.handle(r, { t: 'tap', letter: 'Z' }) // not in ring
+    expect(snap(r).turn).toBe(b!)
+    game.handle(r, { t: 'tap', letter: 'B' })
+    game.handle(r, { t: 'tap', letter: 'C' })
+    expect(snap(r).turn).toBe(a!) // wrapped round
+    expect(snap(r).lit).toBe(true)
+    const taps = events(r).filter((e) => e.type === 'tap') as Extract<ServerEvent, { type: 'tap' }>[]
+    expect(taps.map((t) => t.by)).toEqual([a!, b!, c!])
+  })
+
+  test('with no players it is a plain shared table', async () => {
+    const { game, snap, r } = table({}, [])
+    game.handle(r, { t: 'draw' })
+    await sleep(90)
+    game.handle(r, { t: 'tap', letter: 'A' })
+    expect(snap(r).taps).toBe(1)
+    expect(snap(r).turn).toBeNull()
     await sleep(260)
-    expect(snap(a).phase).toBe('boom')
-    expect(snap(a).lit).toBe(false)
-    expect(events(a).some((e) => e.type === 'boom')).toBe(true)
-    game.handle(a, { t: 'draw' })
-    expect(snap(a).phase).toBe('card')
-    expect(snap(a).letters.every((l) => !l.used)).toBe(true)
+    expect(snap(r).phase).toBe('boom')
+    expect(snap(r).loser).toBeNull()
   })
 
-  test('a tap restarts the fuse so a steady tapper never blows', async () => {
-    const { game, snap } = setup({ fuseMin: 200, fuseMax: 200 })
-    g = game
-    const a = game.join(undefined)
-    game.handle(a, { t: 'draw' })
+  test('boom marks the holder; the loser starts the next round; three marks and out', async () => {
+    const { game, snap, events, r, ids } = table({}, ['Ana', 'Ben', 'Cy'])
+    const [a, b] = ids()
+    game.handle(r, { t: 'draw' })
+    await sleep(90)
+    game.handle(r, { t: 'tap', letter: 'A' }) // Ana taps, Ben holds
+    await sleep(260)
+    expect(snap(r).phase).toBe('boom')
+    expect(snap(r).loser).toBe(b!)
+    expect(snap(r).players.find((p) => p.id === b)!.marks).toBe(1)
+    expect(events(r).some((e) => e.type === 'boom')).toBe(true)
+    game.handle(r, { t: 'draw' })
+    expect(snap(r).turn).toBe(b!) // loser starts
+    expect(snap(r).letters.every((l) => !l.used)).toBe(true)
+    void a
+  })
+
+  test('last player standing wins; deck starts a fresh game', async () => {
+    const { game, snap, events, r, ids } = table({}, ['Ana', 'Ben'])
+    const [a, b] = ids()
+    for (let round = 0; round < 3; round++) {
+      game.handle(r, { t: 'draw' })
+      await sleep(90)
+      // Ana starts round 1: one tap leaves Ben holding. After that Ben starts: two taps bring it back to him.
+      game.handle(r, { t: 'tap', letter: 'A' })
+      if (round > 0) game.handle(r, { t: 'tap', letter: 'B' })
+      await sleep(260)
+    }
+    await sleep(80)
+    expect(snap(r).phase).toBe('over')
+    expect(['Ana', 'Ben']).toContain(snap(r).players.find((p) => p.id === snap(r).winner)!.name)
+    expect(events(r).some((e) => e.type === 'win')).toBe(true)
+    expect(snap(r).players.some((p) => p.out)).toBe(true)
+    game.handle(r, { t: 'draw' })
+    expect(snap(r).phase).toBe('card')
+    expect(snap(r).players.every((p) => p.marks === 0 && !p.out)).toBe(true)
+    void a
+    void b
+  })
+
+  test('a steady tapper never blows; switching the card resets ring and fuse', async () => {
+    const { game, snap, r } = table({ fuseMin: 200, fuseMax: 200 })
+    game.handle(r, { t: 'draw' })
     await sleep(90)
     for (const ch of 'ABCDEF') {
-      game.handle(a, { t: 'tap', letter: ch })
+      game.handle(r, { t: 'tap', letter: ch })
       await sleep(100)
     }
-    expect(snap(a).phase).toBe('play')
+    expect(snap(r).phase).toBe('play')
+    const turn = snap(r).turn
+    game.handle(r, { t: 'draw' })
+    expect(snap(r).phase).toBe('card')
+    expect(snap(r).lit).toBe(false)
+    expect(snap(r).turn).toBe(turn!) // switching the card keeps the turn
+    expect(snap(r).letters.every((l) => !l.used)).toBe(true)
   })
 
-  test('switching the card mid-round resets the ring and the fuse', async () => {
-    const { game, snap } = setup({ fuseMin: 300, fuseMax: 300 })
-    g = game
-    const a = game.join(undefined)
-    game.handle(a, { t: 'draw' })
-    await sleep(90)
-    game.handle(a, { t: 'tap', letter: 'A' })
-    game.handle(a, { t: 'draw' })
-    expect(snap(a).phase).toBe('card')
-    expect(snap(a).lit).toBe(false)
-    expect(snap(a).letters[0]!.used).toBe(false)
-    await sleep(500)
-    expect(snap(a).phase).toBe('play') // never blew
-  })
-
-  test('refill when all letters used; draws are debounced', async () => {
-    const { game, snap, events } = setup({ fuseMin: 5000, fuseMax: 5000, drawGapMs: 50 })
-    g = game
-    const a = game.join(undefined)
-    game.handle(a, { t: 'draw' })
-    const n = snap(a).card!.n
-    game.handle(a, { t: 'draw' }) // too soon
-    expect(snap(a).card!.n).toBe(n)
+  test('removing the player on the clock passes the turn; refill; draw debounce', async () => {
+    const { game, snap, events, r, ids } = table({ fuseMin: 5000, fuseMax: 5000, drawGapMs: 50 }, ['Ana', 'Ben'])
+    const [a, b] = ids()
+    game.handle(r, { t: 'draw' })
+    const n = snap(r).card!.n
+    game.handle(r, { t: 'draw' })
+    expect(snap(r).card!.n).toBe(n)
     await sleep(100)
-    for (const l of snap(a).letters) game.handle(a, { t: 'tap', letter: l.ch })
-    expect(events(a).some((e) => e.type === 'refill')).toBe(true)
-    expect(snap(a).letters.every((l) => !l.used)).toBe(true)
-  })
-
-  test('devices come and go; reconnect keeps the id and color; empty table resets', () => {
-    const { game, snap } = setup()
-    g = game
-    const a = game.join(undefined)
-    const b = game.join(undefined)
-    expect(snap(a).devices.map((d) => d.color)).toEqual([0, 1])
-    game.disconnect(b)
-    expect(snap(a).devices.length).toBe(1)
-    expect(game.join(b)).toBe(b)
-    expect(snap(b).devices.length).toBe(2)
-    game.handle(a, { t: 'draw' })
-    game.disconnect(a)
-    game.disconnect(b)
-    const c = game.join(undefined)
-    expect(snap(c).phase).toBe('idle')
+    game.handle(r, { t: 'remove', id: snap(r).turn! })
+    expect(snap(r).turn).toBe(snap(r).players[0]!.id)
+    game.handle(r, { t: 'add', name: 'Dee' })
+    for (const l of snap(r).letters) game.handle(r, { t: 'tap', letter: l.ch })
+    expect(events(r).some((e) => e.type === 'refill')).toBe(true)
+    void a
+    void b
   })
 })

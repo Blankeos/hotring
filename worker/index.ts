@@ -9,6 +9,15 @@ interface Env {
 export class Room extends DurableObject<Env> {
   private hub = new Hub()
 
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+    // The roster and marks survive the room going quiet (phones sleep, the object is evicted).
+    ctx.blockConcurrencyWhile(async () => {
+      this.hub.game.restore(await ctx.storage.get('game'))
+    })
+    this.hub.game.onPersist = () => void ctx.storage.put('game', this.hub.game.serialize())
+  }
+
   async fetch(req: Request): Promise<Response> {
     if (req.headers.get('upgrade') !== 'websocket') return new Response('expected websocket', { status: 426 })
     const { 0: client, 1: server } = new WebSocketPair()
