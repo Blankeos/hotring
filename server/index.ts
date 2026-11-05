@@ -25,10 +25,24 @@ interface WsData {
   code: string
 }
 
+// Rosters survive a restart of the local server: .data/rooms.json
+const SAVE = join(import.meta.dir, '..', '.data', 'rooms.json')
+const saved: Record<string, unknown> = await Bun.file(SAVE)
+  .json()
+  .catch(() => ({}))
 const rooms = new Map<string, Hub>()
+function persist() {
+  const all = Object.fromEntries([...rooms].map(([code, h]) => [code, h.game.serialize()]))
+  void Bun.write(SAVE, JSON.stringify(all))
+}
 function room(code: string) {
   let h = rooms.get(code)
-  if (!h) rooms.set(code, (h = new Hub()))
+  if (!h) {
+    h = new Hub()
+    h.game.restore(saved[code] as Parameters<typeof h.game.restore>[0])
+    h.game.onPersist = persist
+    rooms.set(code, h)
+  }
   return h
 }
 

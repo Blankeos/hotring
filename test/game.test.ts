@@ -206,4 +206,18 @@ describe('rounds', () => {
     await sleep(200)
     expect(snap(r).phase).toBe('over')
   })
+
+  test('players can be reordered; the turn holder stays; bad ids are ignored', async () => {
+    const { game, snap, r, ids } = table({ fuseMin: 5000, fuseMax: 5000 })
+    const [a, b, c] = ids()
+    game.handle(r, { t: 'draw' })
+    await sleep(90)
+    const holder = snap(r).turn
+    game.handle(r, { t: 'order', ids: [c!, 'nope', a!] }) // b missing -> goes last
+    expect(snap(r).players.map((p) => p.id)).toEqual([c!, a!, b!])
+    expect(snap(r).turn).toBe(holder!)
+    game.handle(r, { t: 'tap', letter: 'A' })
+    const order = snap(r).players.map((p) => p.id)
+    expect(snap(r).turn).toBe(order[(order.indexOf(holder!) + 1) % 3]!) // next in the NEW order
+  })
 })

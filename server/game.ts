@@ -110,6 +110,18 @@ export class Game {
       case 'remove':
         this.remove(msg.id)
         break
+      case 'order': {
+        // Accept only a permutation of the current roster; unknown ids are ignored, missing ones keep their relative order at the end.
+        const byId = new Map(this.players.map((p) => [p.id, p]))
+        const next = (Array.isArray(msg.ids) ? msg.ids : []).flatMap((i) => {
+          const p = byId.get(i)
+          byId.delete(i)
+          return p ? [p] : []
+        })
+        this.players = [...next, ...byId.values()]
+        this.changed()
+        break
+      }
       case 'rename': {
         const p = this.players.find((x) => x.id === msg.id)
         const name = String(msg.name ?? '').trim().slice(0, MAX_NAME)
