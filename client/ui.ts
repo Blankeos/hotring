@@ -4,6 +4,7 @@ import QRCode from 'qrcode'
 import type { PlayerView } from '../shared/protocol'
 import { MAX_MARKS, MAX_NAME } from '../shared/protocol'
 import { E, ICON, anim, h, initial, reduced } from './dom'
+import { roomCode } from './room'
 import type { Fx } from './fx'
 import { CREAM, GOLD, INK, pc } from './palette'
 
@@ -463,15 +464,15 @@ export class Share {
 
   static async joinUrl(): Promise<string> {
     const local = /^(localhost|127\.0\.0\.1|\[?::1\]?|0\.0\.0\.0)$/.test(location.hostname)
-    if (!local) return location.origin + '/'
+    if (!local) return `${location.origin}/?r=${roomCode}`
     try {
       const r = await fetch('/api/lan')
       const j = (await r.json()) as { ips: string[]; port: number }
-      if (j.ips[0]) return `http://${j.ips[0]}:${j.port}/`
+      if (j.ips[0]) return `http://${j.ips[0]}:${j.port}/?r=${roomCode}`
     } catch {
       /* fall through */
     }
-    return location.origin + '/'
+    return `${location.origin}/?r=${roomCode}`
   }
 
   async show() {

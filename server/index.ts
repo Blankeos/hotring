@@ -2,7 +2,7 @@ import { networkInterfaces } from 'node:os'
 import { join } from 'node:path'
 import type { ClientMsg, ServerMsg } from '../shared/protocol'
 import index from '../client/index.html'
-import { Game } from './game'
+import { Hub, ROOM_RE } from './hub'
 
 const PORT = Number(process.env.PORT ?? 5757)
 const PUBLIC = join(import.meta.dir, '..', 'public')
@@ -22,14 +22,15 @@ function lanAddresses(): string[] {
 }
 
 interface WsData {
-  id: string | null
+  code: string
 }
 
-const sockets = new Map<string, Bun.ServerWebSocket<WsData>>()
-
-const game = new Game((playerId, msg: ServerMsg) => {
-  sockets.get(playerId)?.send(JSON.stringify(msg))
-})
+const rooms = new Map<string, Hub>()
+function room(code: string) {
+  let h = rooms.get(code)
+  if (!h) rooms.set(code, (h = new Hub()))
+  return h
+}
 
 const server = Bun.serve<WsData>({
   port: PORT,
@@ -41,7 +42,9 @@ const server = Bun.serve<WsData>({
   async fetch(req, server) {
     const url = new URL(req.url)
     if (url.pathname === '/ws') {
-      return server.upgrade(req, { data: { id: null } }) ? undefined : new Response('upgrade failed', { status: 400 })
+      const code = (url.searchParams.get('r') ?? '').toUpperCase()
+      if (!ROOM_RE.test(code)) return new Response('bad room', { status: 400 })
+      return server.upgrade(req, { data: { code } }) ? undefined : new Response('upgrade failed', { status: 400 })
     }
     if (url.pathname.startsWith('/sfx/') && !url.pathname.includes('..')) {
       const f = Bun.file(join(PUBLIC, url.pathname))
@@ -53,32 +56,11 @@ const server = Bun.serve<WsData>({
   websocket: {
     idleTimeout: 60,
     message(ws, raw) {
-      let msg: ClientMsg
-      try {
-        msg = JSON.parse(String(raw))
-      } catch {
-        return
-      }
-      if (msg.t === 'join') {
-        const id = game.join(msg.id, String(msg.name ?? ''))
-        // A new tab for the same player replaces the old socket.
-        const old = sockets.get(id)
-        if (old && old !== ws) {
-          old.data.id = null
-          old.close()
-        }
-        ws.data.id = id
-        sockets.set(id, ws)
-        game.broadcast()
-        return
-      }
-      if (ws.data.id) game.handle(ws.data.id, msg)
+      room(ws.data.code).message(ws, String(raw))
     },
     close(ws) {
-      const id = ws.data.id
-      if (!id || sockets.get(id) !== ws) return
-      sockets.delete(id)
-      game.disconnect(id)
+      const h = rooms.get(ws.data.code)
+      h?.close(ws)
     },
   },
   development: process.env.NODE_ENV !== 'production',

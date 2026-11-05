@@ -10,7 +10,7 @@ const count = Number(args.find((a) => /^\d+$/.test(a)) ?? 3)
 const auto = args.includes('--auto')
 const fast = args.includes('--fast') // 0.1-0.3 s turns: handy for seeing a ring refill
 const min = Number(args.find((a) => a.startsWith('--min='))?.slice(6) ?? 2)
-const url = args.find((a) => a.startsWith('--url='))?.slice(6) ?? `ws://localhost:${process.env.PORT ?? 5757}/ws`
+const url = args.find((a) => a.startsWith('--url='))?.slice(6) ?? `ws://localhost:${process.env.PORT ?? 5757}/ws?r=${process.env.ROOM ?? 'BOTS'}`
 const rand = (a: number, b: number) => a + Math.random() * (b - a)
 
 function bot(i: number) {

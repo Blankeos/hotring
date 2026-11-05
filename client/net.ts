@@ -1,4 +1,5 @@
 // WebSocket transport: typed messages, auto-reconnect with backoff, rejoin on every (re)connect.
+import { roomCode } from './room'
 import type { ClientMsg, ServerEvent, ServerMsg, Snapshot } from '../shared/protocol'
 
 export interface NetHandlers {
@@ -63,7 +64,7 @@ export class Net {
     this.retry = null
     const st = this.ws?.readyState
     if (st === WebSocket.OPEN || st === WebSocket.CONNECTING) return
-    const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`
+    const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?r=${roomCode}`
     let ws: WebSocket
     try {
       ws = new WebSocket(url)
