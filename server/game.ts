@@ -110,6 +110,26 @@ export class Game {
       case 'remove':
         this.remove(msg.id)
         break
+      case 'reset': {
+        for (const p of this.players) {
+          p.marks = 0
+          p.out = false
+        }
+        if (this.phase === 'over' || this.phase === 'boom') {
+          this.clearAll()
+          this.overPending = false
+          this.phase = 'idle'
+          this.loser = this.winner = null
+          this.card = null
+          this.used.clear()
+          this.taps = 0
+          this.lit = false
+        }
+        if (!this.turn) this.turn = this.players[0]?.id ?? null
+        this.emit({ type: 'reset' })
+        this.changed()
+        break
+      }
       case 'order': {
         // Accept only a permutation of the current roster; unknown ids are ignored, missing ones keep their relative order at the end.
         const byId = new Map(this.players.map((p) => [p.id, p]))

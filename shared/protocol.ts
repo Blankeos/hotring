@@ -60,6 +60,7 @@ export type ClientMsg =
   | { t: 'add'; name: string } // anyone: add a player to the table
   | { t: 'remove'; id: string } // anyone: remove a player
   | { t: 'rename'; id: string; name: string }
+  | { t: 'reset' } // everyone back to full lives (marks 0, nobody out); a finished game goes back to idle
   | { t: 'order'; ids: string[] } // drag and drop: the new player order (turn order)
 
 // ---- server -> client ----
@@ -68,6 +69,7 @@ export type ServerEvent =
   | { type: 'left' } // a remote left
   | { type: 'added'; id: string }
   | { type: 'removed'; id: string }
+  | { type: 'reset' }
   | { type: 'deal' }
   | { type: 'reveal' }
   | { type: 'go'; turn: string | null }

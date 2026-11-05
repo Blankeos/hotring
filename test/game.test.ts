@@ -220,4 +220,22 @@ describe('rounds', () => {
     const order = snap(r).players.map((p) => p.id)
     expect(snap(r).turn).toBe(order[(order.indexOf(holder!) + 1) % 3]!) // next in the NEW order
   })
+
+  test('reset restores all lives, un-outs players and clears a finished game', async () => {
+    const { game, snap, r } = table({ overMs: 20 }, ['Ana', 'Ben'])
+    for (let round = 0; round < 3; round++) {
+      game.handle(r, { t: 'draw' })
+      await sleep(90)
+      game.handle(r, { t: 'tap', letter: 'A' })
+      if (round > 0) game.handle(r, { t: 'tap', letter: 'B' })
+      await sleep(260)
+    }
+    await sleep(40)
+    expect(snap(r).phase).toBe('over')
+    game.handle(r, { t: 'reset' })
+    expect(snap(r).phase).toBe('idle')
+    expect(snap(r).players.every((p) => p.marks === 0 && !p.out)).toBe(true)
+    expect(snap(r).winner).toBeNull()
+    expect(snap(r).players.length).toBe(2)
+  })
 })
