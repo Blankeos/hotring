@@ -43,10 +43,6 @@ export function centerOf(el: Element) {
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
 }
 
-export function initial(name: string) {
-  const ch = [...name.trim()][0]
-  return ch ? ch.toUpperCase() : '?'
-}
 
 const sv = (body: string, vb = '0 0 24 24') =>
   `<svg viewBox="${vb}" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`
@@ -57,12 +53,4 @@ export const ICON = {
   qr: sv(
     '<rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1.6"/><rect x="14" y="3.5" width="6.5" height="6.5" rx="1.6"/><rect x="3.5" y="14" width="6.5" height="6.5" rx="1.6"/><path d="M14 14h2.5v2.5M20.5 14v.01M14 20.5h.01M17.5 20.5h3v-3"/>',
   ),
-  play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.2 5.3c0-1.2 1.3-1.9 2.3-1.3l9.3 6.1c1 .6 1 2 0 2.6l-9.3 6.1c-1 .6-2.3-.1-2.3-1.3z" fill="currentColor"/></svg>',
-  replay: sv('<path d="M4.5 12a7.5 7.5 0 1 0 2.4-5.5"/><path d="M4 3.8v4.6h4.6"/>'),
-  arrow: sv('<path d="M5 12h13M13 6.5l5.5 5.5-5.5 5.5"/>'),
-  x: sv('<path d="M7 7l10 10M17 7L7 17"/>'),
-  crown:
-    '<svg viewBox="0 0 64 40" aria-hidden="true"><path d="M6 34 3 8l16 12L32 2l13 18L61 8l-3 26z" fill="currentColor" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/><circle cx="32" cy="24" r="4" fill="var(--bg)"/></svg>',
-  cross:
-    '<svg viewBox="0 0 100 100" aria-hidden="true"><path d="M24 24 76 76M76 24 24 76" stroke="currentColor" stroke-width="13" stroke-linecap="round"/></svg>',
 }

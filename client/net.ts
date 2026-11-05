@@ -14,7 +14,7 @@ export class Net {
   private tries = 0
   private retry: ReturnType<typeof setTimeout> | null = null
   private watchdog: ReturnType<typeof setTimeout> | null = null
-  private joinMsg: { id: string; name: string } | null = null
+  private joinMsg: { id: string } | null = null
   online = false
 
   constructor(private h: NetHandlers) {
@@ -27,15 +27,10 @@ export class Net {
     addEventListener('pageshow', () => this.wake())
   }
 
-  join(id: string, name: string) {
-    this.joinMsg = { id, name }
+  join(id: string) {
+    this.joinMsg = { id }
     if (this.ws?.readyState === WebSocket.OPEN) this.sendJoin()
     else this.connect()
-  }
-
-  /** Stop rejoining (we were removed until the player asks again). */
-  forget() {
-    this.joinMsg = null
   }
 
   send(m: ClientMsg) {
@@ -43,7 +38,7 @@ export class Net {
   }
 
   private sendJoin() {
-    if (this.joinMsg) this.send({ t: 'join', id: this.joinMsg.id, name: this.joinMsg.name })
+    if (this.joinMsg) this.send({ t: 'join', id: this.joinMsg.id })
   }
 
   private wake() {

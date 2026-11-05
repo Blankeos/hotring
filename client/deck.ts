@@ -3,7 +3,7 @@
 // -> fold into the chip on `go`.
 import type { CategoryCard } from '../shared/protocol'
 import type { Audio } from './audio'
-import { E, anim, h, reduced, wait } from './dom'
+import { E, anim, h, reduced } from './dom'
 import type { Fx } from './fx'
 import { CREAM, cardAccent } from './palette'
 
@@ -184,11 +184,10 @@ export class Deck {
   }
 
   /** Joined mid card phase: put the card in the middle without the shuffle. */
-  midJoin(card: CategoryCard, remainingMs: number) {
+  midJoin(card: CategoryCard, faceUp: boolean) {
     this.seq++
     this.setCard(card)
     this.hideChip()
-    const faceUp = remainingMs < 1750
     this.showFly(faceUp)
     anim(this.fly, [{ transform: 'scale(.6)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }], { duration: 420, easing: E.spring })
     this.setStage(faceUp ? 'revealed' : 'center')
