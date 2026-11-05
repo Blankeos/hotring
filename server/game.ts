@@ -60,6 +60,7 @@ export class Game {
   private fuseStart = 0
   private fuseLen = 0
   private lastDraw = 0
+  private overPending = false
   private cardTimers = new Set<ReturnType<typeof setTimeout>>()
   private fuseTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -166,7 +167,7 @@ export class Game {
 
   private draw() {
     const now = Date.now()
-    if (now - this.lastDraw < this.opts.drawGapMs) return
+    if (now - this.lastDraw < this.opts.drawGapMs || this.overPending) return
     this.lastDraw = now
     this.clearAll()
     // Who starts: after a boom the loser does (or the next player if they went out);
@@ -256,7 +257,9 @@ export class Game {
     this.emit({ type: 'boom', loser: loser?.id ?? null, out })
     this.changed()
     if (this.players.length >= 2 && this.players.filter((p) => !p.out).length <= 1) {
+      this.overPending = true
       this.cardLater(this.opts.overMs, () => {
+        this.overPending = false
         const w = this.players.find((p) => !p.out)
         this.phase = 'over'
         this.winner = w?.id ?? null

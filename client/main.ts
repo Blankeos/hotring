@@ -9,6 +9,7 @@ import { Fx } from './fx'
 import { Net } from './net'
 import { CREAM, GOLD, HOT, pc } from './palette'
 import { Ring, type RingMode } from './ring'
+import { Takeover } from './takeover'
 import { Pop, Roster, Share } from './ui'
 
 const ID_KEY = 'hotring.id'
@@ -49,6 +50,7 @@ shareBtn.setAttribute('aria-label', 'share')
 const remotesEl = h('div', '', shareBtn)
 remotesEl.id = 'remotes'
 const pop = new Pop(document.body)
+const takeover = new Takeover(stage, fx)
 const conn = h('div', '', stage)
 conn.id = 'conn'
 const share = new Share(document.body)
@@ -116,7 +118,7 @@ function layout() {
   rs.width = perRow * a + (perRow - 1) * gap + 'px'
   rs.left = (W - ins.l - ins.r - 16) / 2 - (perRow * a + (perRow - 1) * gap) / 2 + 'px'
   const topH = Math.max(44, rosterH)
-  const chipH = 44
+  const chipH = 52
   top.style.left = ins.l + 8 + 'px'
   top.style.right = ins.r + 8 + 'px'
   top.style.top = topY + 'px'
@@ -155,6 +157,7 @@ function layout() {
   })
 }
 let lastH = 0
+let fuseDeadline = 0
 let laidN = -1
 let discSize = 44
 
@@ -186,10 +189,13 @@ function render(s: Snapshot, p: Snapshot | null) {
   // who holds the fuse: big on the lens
   const holder = phase === 'over' ? player(s.winner) : phase === 'boom' ? (player(s.loser) ?? player(s.turn)) : player(s.turn)
   ring.setTurn(holder ? { id: holder.id, name: holder.name, color: pc(holder.color) } : null, phase === 'over')
+  if (phase === 'over' && takeover.kind !== 'win' && holder) takeover.show('win', { name: holder.name, color: pc(holder.color), quiet: true })
+  else if (phase !== 'over' && takeover.kind === 'win') takeover.hide()
 
   ring.sync(s.letters)
   ring.setMode(ringMode(s))
   ring.setLit(phase === 'play' && s.lit)
+  ring.setFuse(fuseDeadline && phase === 'play' ? Math.max(0, fuseDeadline - performance.now()) : null, s.fuseLen)
   ring.setEmoji(phase === 'play' || phase === 'boom' ? (s.card?.emoji ?? null) : null)
   if (!s.lit && phase !== 'boom') ring.calm()
 
@@ -220,6 +226,8 @@ function render(s: Snapshot, p: Snapshot | null) {
 function onState(s: Snapshot) {
   const p = snap
   snap = s
+  // Fuse deadline on the local clock, fixed at receive time (clocks are never compared).
+  fuseDeadline = s.phase === 'play' && s.lit && s.fuseLeft !== null ? performance.now() + s.fuseLeft : 0
   // Optimistic presses the server never confirmed: the snapshot wins.
   const now = performance.now()
   for (const [ch, at] of pending) {
@@ -250,6 +258,7 @@ function onEvent(e: ServerEvent) {
       pending.clear()
       ring.calm()
       ring.setLit(false)
+      takeover.hide()
       if (s.phase === 'idle' || s.phase === 'over') audio.play('start')
       void deck.deal()
       break
@@ -317,6 +326,7 @@ function shake(power: number) {
 function onWin(id: string) {
   const col = colorOf(id)
   audio.play('win')
+  takeover.show('win', { name: player(id)?.name ?? '', color: col })
   fx.confetti([col, col, CREAM, GOLD], 4200)
   setTimeout(() => {
     const c = ring.lensCenter()
@@ -333,6 +343,12 @@ function onBoom(loser: string | null, out: boolean) {
   audio.play('boom')
   if (out) audio.play('out', { delay: 1100 })
   roster.pipDelay = 650
+  const lp = player(loser)
+  setTimeout(() => {
+    if (snap?.phase !== 'boom' && snap?.phase !== 'over') return
+    if (lp) takeover.show(out ? 'out' : 'lost', { name: lp.name, color: pc(lp.color) })
+    else takeover.show('boom', { color: HOT })
+  }, 380)
   if (loser) {
     ring.flashName()
     const col = colorOf(loser)
@@ -422,7 +438,10 @@ shareBtn.addEventListener('click', () => {
 })
 
 // Unlock audio on the very first gesture, wherever it lands.
-for (const t of ['pointerdown', 'keydown', 'touchend'] as const) addEventListener(t, () => audio.unlock(), { capture: true, passive: true })
+for (const t of ['pointerdown', 'touchstart', 'touchend', 'click', 'keydown'] as const)
+  addEventListener(t, () => audio.unlock(), { capture: true, passive: true })
+// Debug handle for checking the audio state from devtools.
+;(window as unknown as { __hotringAudio: Audio }).__hotringAudio = audio
 // No pinch / double-tap zoom, no context menus: it's a game.
 document.addEventListener('gesturestart', (e) => e.preventDefault())
 document.addEventListener('dblclick', (e) => e.preventDefault())

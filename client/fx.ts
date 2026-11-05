@@ -10,6 +10,7 @@ const CONFETTI = 2
 const RING = 3
 const STAR = 4
 const MOTE = 5
+const EMOJI = 6
 
 interface P {
   k: number
@@ -24,13 +25,14 @@ interface P {
   s: number
   s2: number
   c: string
+  e: string
   rot: number
   vr: number
   a: number
   ph: number
 }
 
-const blank = (): P => ({ k: 0, x: 0, y: 0, vx: 0, vy: 0, g: 0, drag: 0, t: 0, life: 1, s: 1, s2: 0, c: '#fff', rot: 0, vr: 0, a: 1, ph: 0 })
+const blank = (): P => ({ k: 0, x: 0, y: 0, vx: 0, vy: 0, g: 0, drag: 0, t: 0, life: 1, s: 1, s2: 0, c: '#fff', e: '', rot: 0, vr: 0, a: 1, ph: 0 })
 
 type Range = [number, number]
 const r = (v: Range | number) => (typeof v === 'number' ? v : v[0] + Math.random() * (v[1] - v[0]))
@@ -228,6 +230,49 @@ export class Fx {
     })
   }
 
+  /** Emoji rain from the top edge for `ms`. */
+  emojis(list: string[], ms: number, rate = 14) {
+    let left = ms / 1000
+    let acc = 0
+    const r = reduced ? Math.max(2, rate * 0.25) : rate
+    this.hook((dt) => {
+      left -= dt
+      acc += dt * r
+      while (acc >= 1) {
+        acc--
+        const p = this.get()
+        if (!p) break
+        p.k = EMOJI
+        p.e = list[Math.floor(Math.random() * list.length)]!
+        p.x = Math.random() * this.w
+        p.y = -40
+        p.vx = (Math.random() - 0.5) * 60
+        p.vy = 120 + Math.random() * 180
+        p.g = 260
+        p.drag = 0.4
+        p.life = 3.5
+        p.s = 30 + Math.random() * 26
+        p.rot = (Math.random() - 0.5) * 1.2
+        p.vr = (Math.random() - 0.5) * 5
+      }
+      return left > 0
+    })
+  }
+
+  private emojiSprite(e: string) {
+    let s = this.sprites.get('e:' + e)
+    if (s) return s
+    s = document.createElement('canvas')
+    s.width = s.height = 96
+    const g = s.getContext('2d')!
+    g.font = '76px system-ui, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif'
+    g.textAlign = 'center'
+    g.textBaseline = 'middle'
+    g.fillText(e, 48, 54)
+    this.sprites.set('e:' + e, s)
+    return s
+  }
+
   setAmbient(on: boolean) {
     this.ambient = on
     if (on) this.wake()
@@ -323,6 +368,16 @@ export class Fx {
       ctx.translate(p.x, p.y)
       ctx.rotate(p.rot)
       ctx.fillRect(-p.s / 2, (-p.s2 * flip) / 2, p.s, p.s2 * flip + 0.5)
+      ctx.restore()
+    }
+
+    for (const p of ps) {
+      if (p.k !== EMOJI) continue
+      ctx.globalAlpha = Math.min(1, (p.life - p.t) * 2)
+      ctx.save()
+      ctx.translate(p.x, p.y)
+      ctx.rotate(p.rot)
+      ctx.drawImage(this.emojiSprite(p.e), -p.s / 2, -p.s / 2, p.s, p.s)
       ctx.restore()
     }
 

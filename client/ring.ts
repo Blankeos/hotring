@@ -26,6 +26,15 @@ export class Ring {
   private rimLight: HTMLDivElement
   private channel: HTMLDivElement
   private keysEl: HTMLDivElement
+  private timer: HTMLDivElement
+  private arc: SVGCircleElement
+  private secs: HTMLDivElement
+  private deadline = 0
+  private fuseLen = 1
+  private timerRaf = 0
+  private lastTenth = -1
+  private lastStep = -1
+  private hopEl: HTMLDivElement
   private island: HTMLDivElement
   private well: HTMLDivElement
   private glow: HTMLDivElement
@@ -58,15 +67,21 @@ export class Ring {
     this.channel = h('div', 'r-channel', this.el)
     this.island = h('div', 'r-island', this.el)
     this.well = h('div', 'r-well', this.el)
+    this.timer = h('div', 'r-timer', this.el)
+    this.timer.innerHTML =
+      '<svg viewBox="0 0 100 100" aria-hidden="true"><circle class="track" cx="50" cy="50" r="45"/><circle class="arc" cx="50" cy="50" r="45" pathLength="1000"/></svg>'
+    this.arc = this.timer.querySelector('.arc')!
     this.glow = h('div', 'r-glow', this.el)
     this.lens = h('div', 'r-lens', this.el)
     h('div', 'r-sheen', this.lens)
     this.emoji = h('div', 'r-emoji', this.lens)
     this.label = h('div', 'r-label', this.lens)
+    this.secs = h('div', 'r-secs', this.el)
     this.crownEl = h('div', 'r-crown', this.label, ICON.crown)
     this.nameEl = h('div', 'r-name', this.label)
     h('div', 'r-glint', this.lens)
-    this.keysEl = h('div', 'r-keys', this.el)
+    this.hopEl = h('div', 'r-hop', this.el)
+    this.keysEl = h('div', 'r-keys', this.hopEl)
   }
 
   private build(chs: string[]) {
@@ -132,11 +147,24 @@ export class Ring {
     const islD = 2 * (R - d / 2 - pad)
     put(this.island, islD)
     const wellD = islD * 0.8
+    // Timer groove on the hub plate, between the plate edge and the bezel well.
+    const grooveW = (islD - wellD) / 2
+    const tD = (islD + wellD) / 2
+    put(this.timer, tD + grooveW * 0.62, Math.max(2, ext * 0.4))
+    const sw = ((grooveW * 0.62) / (tD + grooveW * 0.62)) * 100
+    for (const c of this.timer.querySelectorAll('circle')) {
+      c.setAttribute('r', String(50 - sw / 2))
+      c.setAttribute('stroke-width', String(sw))
+    }
     put(this.well, wellD, Math.max(2, ext * 0.4))
     const lensD = wellD * 0.84
     this.lensR = lensD / 2
     put(this.lens, lensD, Math.max(2, ext * 0.4))
     put(this.glow, lensD, Math.max(2, ext * 0.4))
+    this.secs.style.left = S / 2 - lensD * 0.3 + 'px'
+    this.secs.style.width = lensD * 0.6 + 'px'
+    this.secs.style.top = S / 2 + Math.max(2, ext * 0.4) + lensD * 0.24 + 'px'
+    this.secs.style.fontSize = Math.max(16, lensD * 0.17) + 'px'
     st.setProperty('--lens', lensD + 'px')
     st.setProperty('--isl', islD + 'px')
     for (const k of this.keys) {
@@ -211,6 +239,40 @@ export class Ring {
     setTimeout(() => this.who === key && apply(), 130)
   }
 
+  /**
+   * Visible fuse: a heat-coloured arc drains around the hub with a seconds readout.
+   * `left` is ms remaining when the snapshot was received (local clock, no sync needed).
+   */
+  setFuse(left: number | null, len: number | null) {
+    if (left === null || !len) {
+      this.el.classList.remove('timing')
+      cancelAnimationFrame(this.timerRaf)
+      this.timerRaf = 0
+      return
+    }
+    this.deadline = performance.now() + left
+    this.fuseLen = len
+    this.el.classList.add('timing')
+    if (!this.timerRaf) this.timerRaf = requestAnimationFrame(this.timerFrame)
+  }
+
+  private timerFrame = () => {
+    const left = Math.max(0, this.deadline - performance.now())
+    const frac = left / this.fuseLen
+    this.arc.style.strokeDashoffset = String(Math.round((1 - frac) * 1000))
+    const step = Math.round((1 - frac) * 16)
+    if (step !== this.lastStep) {
+      this.lastStep = step
+      this.arc.style.stroke = heatColor(step / 16)
+    }
+    const tenth = Math.ceil(left / 100)
+    if (tenth !== this.lastTenth) {
+      this.lastTenth = tenth
+      this.secs.textContent = (tenth / 10).toFixed(1)
+    }
+    this.timerRaf = left > 0 ? requestAnimationFrame(this.timerFrame) : 0
+  }
+
   /** Big flash of the name on the lens (boom). */
   flashName() {
     anim(
@@ -230,7 +292,7 @@ export class Ring {
     if (on === this.lit) return
     this.lit = on
     this.el.classList.toggle('lit', on)
-    if (!on) this.el.classList.remove('hot')
+    if (!on) this.setHot(false)
   }
 
   isUsed(ch: string) {
@@ -340,9 +402,9 @@ export class Ring {
 
   /** Fuse tick: a physical "tk". Lens pulses, rim flares, keys hop a hair. */
   tick(heat: number) {
-    const col = heatColor(heat)
-    this.el.style.setProperty('--heat', col)
-    this.el.classList.toggle('hot', heat > 0.72)
+    const col = heatColor(Math.round(heat * 16) / 16)
+    this.setHeat(col)
+    this.setHot(heat > 0.72)
     const k = 1.03 + heat * 0.05
     anim(this.lens, [{ transform: `scale(${k})` }, { transform: 'scale(1)' }], { duration: 180, easing: E.out, fill: 'none' })
     anim(this.glow, [{ opacity: 0.55 + heat * 0.45, transform: `scale(${1.04 + heat * 0.12})` }, { opacity: 0.25 + heat * 0.35, transform: 'scale(1)' }], {
@@ -351,37 +413,53 @@ export class Ring {
     })
     anim(this.rimLight, [{ opacity: 0.35 + heat * 0.65 }, { opacity: 0.12 + heat * 0.45 }], { duration: 120 + 280 * (1 - heat), easing: E.out })
     if (reduced) return
-    const hop = Math.max(0.6, this.ext * (0.08 + heat * 0.14))
-    for (const key of this.keys) {
-      if (key.used) continue
-      anim(key.el, [{ transform: 'translateY(0)' }, { transform: `translateY(${-hop}px)`, offset: 0.3 }, { transform: 'translateY(0)' }], {
-        duration: 140,
-        easing: E.out,
-        fill: 'none',
-      })
-    }
+    // One animation on the whole key layer (not 20): a physical "tk" hop.
+    const hop = Math.max(0.6, this.ext * (0.06 + heat * 0.12))
+    anim(this.hopEl, [{ transform: 'translateY(0)' }, { transform: `translateY(${-hop}px)`, offset: 0.3 }, { transform: 'translateY(0)' }], {
+      duration: 140,
+      easing: E.out,
+      fill: 'none',
+    })
+  }
+
+  /**
+   * Heat colour goes only on the few parts that glow (never the ring root, which would
+   * restyle every key), and only when the quantised colour actually changes.
+   */
+  private heatCol = ''
+  private setHeat(col: string) {
+    if (col === this.heatCol) return
+    this.heatCol = col
+    for (const e of [this.lens, this.glow, this.rimLight]) e.style.setProperty('--heat', col)
+  }
+
+  private hot = false
+  private setHot(on: boolean) {
+    if (on === this.hot) return
+    this.hot = on
+    this.keysEl.classList.toggle('hot', on)
   }
 
   /** A tap relit the fuse: the lens flashes the tapper's colour, then back to calm. */
   relight(color: string) {
-    this.el.style.setProperty('--heat', heatColor(0))
-    this.el.classList.remove('hot')
+    this.setHeat(heatColor(0))
+    this.setHot(false)
     anim(this.lens, [{ backgroundColor: color, transform: 'scale(1.1)' }, { backgroundColor: heatColor(0), transform: 'scale(1)' }], { duration: 420, easing: E.out, fill: 'none' })
     anim(this.glow, [{ opacity: 0.9, transform: 'scale(1.2)', backgroundColor: color }, { opacity: 0.3, transform: 'scale(1)' }], { duration: 420, easing: E.out })
     anim(this.rimLight, [{ opacity: 0.6 }, { opacity: 0.15 }], { duration: 400, easing: E.out })
   }
 
   calm() {
-    this.el.style.setProperty('--heat', heatColor(0))
-    this.el.classList.remove('hot')
+    this.setHeat(heatColor(0))
+    this.setHot(false)
     anim(this.glow, [{ opacity: 0.25 }], { duration: 300 })
     anim(this.rimLight, [{ opacity: 0.12 }], { duration: 300 })
   }
 
   /** Boom: the whole instrument convulses, then settles. */
   boom() {
-    this.el.classList.remove('hot')
-    this.el.style.setProperty('--heat', heatColor(1))
+    this.setHot(false)
+    this.setHeat(heatColor(1))
     this.el.classList.add('blown')
     clearTimeout(this.blownT)
     this.blownT = setTimeout(() => this.el.classList.remove('blown'), 1500)

@@ -591,9 +591,23 @@ svg {
 }
 
 /* keys: hole, extruded skirt, domed cap */
+.r-hop {
+  inset: 0;
+  will-change: transform;
+}
 .r-keys {
+  position: absolute;
   inset: 0;
   transition: opacity 0.6s var(--ease-out);
+}
+/* near boom the whole key layer shivers (one composited layer, not 20) */
+.r-keys.hot {
+  animation: shiver 0.08s linear infinite alternate;
+}
+.r-lens,
+.r-glow,
+.r-rimlight {
+  will-change: transform, opacity;
 }
 #ring[data-mode='idle'] .r-keys {
   opacity: 0.75;
@@ -682,15 +696,12 @@ svg {
 .key .cap:focus-visible {
   outline-offset: calc(var(--ext) + 2px);
 }
-#ring.hot .key:not(.used) .face {
-  animation: shiver 0.08s linear infinite alternate;
-}
 @keyframes shiver {
   from {
-    transform: translate(-0.7px, 0) rotate(-1.4deg);
+    transform: translate(-0.8px, 0) rotate(-0.35deg);
   }
   to {
-    transform: translate(0.7px, 0.3px) rotate(1.4deg);
+    transform: translate(0.8px, 0.4px) rotate(0.35deg);
   }
 }
 
@@ -865,9 +876,10 @@ svg {
   position: absolute;
   left: 0;
   width: 100%;
-  height: 44px;
+  height: 0;
   z-index: 9;
   display: flex;
+  align-items: center;
   justify-content: center;
   visibility: hidden;
   pointer-events: none;
@@ -876,13 +888,15 @@ svg {
   visibility: visible;
 }
 #chip .pill {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 44px;
-  max-width: calc(100% - 32px);
-  padding: 0 20px 0 6px;
+  min-height: 44px;
+  max-width: min(calc(100% - 32px), 560px);
+  padding: 6px 20px 6px 6px;
   border-radius: 22px;
+  line-height: 1.12;
   background: var(--acc);
   color: var(--bg);
   font-size: 17px;
@@ -901,8 +915,13 @@ svg {
 }
 #chip .txt {
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  text-wrap: balance;
+}
+#chip .pill.long {
+  font-size: 15px;
 }
 
 /* ---------- share overlay ---------- */
@@ -940,8 +959,144 @@ svg {
 
 
 @media (prefers-reduced-motion: reduce) {
-  #ring.hot .key:not(.used) .face,
+  .r-keys.hot,
   #deck.ready .stack {
     animation: none;
   }
+}
+
+/* ---------- visible fuse ---------- */
+
+.r-timer {
+  opacity: 0;
+  transform: scale(0.94);
+  transition:
+    opacity 0.3s,
+    transform 0.4s var(--spring);
+  will-change: transform, opacity;
+}
+#ring.timing .r-timer {
+  opacity: 1;
+  transform: none;
+}
+.r-timer svg {
+  transform: rotate(-90deg);
+}
+.r-timer circle {
+  fill: none;
+}
+.r-timer .track {
+  stroke: rgba(0, 0, 0, 0.42);
+}
+.r-timer .arc {
+  stroke: #2ec4b6;
+  stroke-linecap: round;
+  stroke-dasharray: 1000;
+  stroke-dashoffset: 0;
+}
+#ring > .r-secs {
+  border-radius: 0;
+  z-index: 3;
+  text-align: center;
+  color: #fff;
+  font-weight: 900;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+#ring.timing > .r-secs {
+  opacity: 0.92;
+}
+
+/* ---------- the loud moment: lost / out / boom / wins ---------- */
+
+#takeover {
+  position: absolute;
+  inset: 0;
+  z-index: 19;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(13, 10, 24, 0.86);
+  padding: 0 16px;
+}
+#takeover.on {
+  display: flex;
+}
+#takeover[data-kind='win'] {
+  background: rgba(13, 10, 24, 0.6);
+  pointer-events: none;
+}
+#takeover .box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 100%;
+}
+#takeover .mega {
+  font-size: min(28vw, 128px);
+  line-height: 1;
+  margin-bottom: 12px;
+}
+#takeover .mega .disc {
+  position: relative;
+  width: min(32vw, 132px);
+  height: min(32vw, 132px);
+  border-radius: 50%;
+  background: var(--c);
+  color: var(--bg);
+  display: grid;
+  place-items: center;
+  font-size: min(16vw, 68px);
+  font-weight: 900;
+  filter: saturate(0.4) brightness(0.8);
+  box-shadow:
+    0 6px 0 var(--cd),
+    inset 0 -8px 0 rgba(0, 0, 0, 0.18),
+    inset 0 3px 0 rgba(255, 255, 255, 0.3);
+}
+#takeover .mega .x {
+  position: absolute;
+  inset: -14%;
+  color: var(--hot);
+}
+#takeover .big {
+  font-weight: 900;
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  max-width: 100%;
+}
+#takeover .name {
+  color: var(--c);
+  text-shadow: 0 5px 0 var(--cd);
+}
+#takeover .word {
+  color: var(--cream);
+  text-shadow: 0 5px 0 rgba(0, 0, 0, 0.5);
+  margin-top: 4px;
+}
+#takeover[data-kind='out'] .word {
+  color: var(--hot);
+  text-shadow: 0 5px 0 #6b1520;
+}
+#takeover[data-kind='win'] .word {
+  color: var(--gold);
+  text-shadow: 0 5px 0 #8a6a10;
+}
+#takeover .line {
+  margin-top: 16px;
+  padding: 8px 16px;
+  border-radius: 20px;
+  background: #2b2252;
+  box-shadow: 0 3px 0 #1b1535;
+  font-size: clamp(16px, 4.6vw, 22px);
+  color: var(--cream);
+}
+#stage[data-phase='over'] #deck {
+  z-index: 22;
 }

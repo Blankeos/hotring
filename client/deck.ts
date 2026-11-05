@@ -111,7 +111,7 @@ export class Deck {
     f.height = L.card.h + 'px'
     this.fly.style.setProperty('--cw', L.card.w + 'px')
     this.fly.style.setProperty('--dw', L.card.w + 'px')
-    this.chip.style.top = L.chip.y - 22 + 'px'
+    this.chip.style.top = L.chip.y + 'px'
   }
 
   setInteractive(on: boolean) {
@@ -147,8 +147,10 @@ export class Deck {
     this.txt.textContent = card.text
     this.chipEmo.textContent = card.emoji
     this.chipTxt.textContent = card.text
+    this.pill.classList.toggle('long', card.text.length > 30)
     // Long category names get a smaller face size.
-    this.txt.style.fontSize = `calc(var(--cw) * ${card.text.length > 28 ? 0.085 : card.text.length > 18 ? 0.096 : 0.112})`
+    const n = card.text.length
+    this.txt.style.fontSize = `calc(var(--cw) * ${n > 40 ? 0.086 : n > 28 ? 0.092 : n > 18 ? 0.096 : 0.112})`
   }
 
   /** Card position transform (relative to the centre slot) for the top of the deck. */
@@ -224,6 +226,10 @@ export class Deck {
     setTimeout(() => {
       if (my === this.seq) this.popChip()
     }, reduced ? 200 : 330)
+    // Belt and braces: never leave the card hovering if the animation is starved.
+    setTimeout(() => {
+      if (my === this.seq) this.hideFly()
+    }, reduced ? 520 : 720)
     await a.finished.catch(() => {})
     if (my !== this.seq) return
     this.hideFly()

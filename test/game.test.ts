@@ -190,4 +190,20 @@ describe('rounds', () => {
     void a
     void b
   })
+
+  test('a draw right after the final boom does not skip the winner screen', async () => {
+    const { game, snap, r } = table({ overMs: 150 }, ['Ana', 'Ben'])
+    for (let round = 0; round < 3; round++) {
+      game.handle(r, { t: 'draw' })
+      await sleep(90)
+      game.handle(r, { t: 'tap', letter: 'A' })
+      if (round > 0) game.handle(r, { t: 'tap', letter: 'B' })
+      await sleep(round < 2 ? 260 : 190)
+    }
+    expect(snap(r).phase).toBe('boom')
+    game.handle(r, { t: 'draw' })
+    expect(snap(r).phase).toBe('boom') // ignored while 'over' is pending
+    await sleep(200)
+    expect(snap(r).phase).toBe('over')
+  })
 })
