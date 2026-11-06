@@ -1014,7 +1014,15 @@ svg {
   -webkit-user-select: text;
   user-select: text;
 }
-
+#share .note {
+  margin-top: -6px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gold);
+  opacity: 0.7;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .r-keys.hot,

@@ -589,8 +589,9 @@ export class Share {
     this.box = h('div', 'qrbox', this.el)
     this.canvas = h('canvas', '', this.box)
     this.url = h('div', 'url', this.el)
+    h('div', 'note', this.el, 'Same wifi only')
     this.el.addEventListener('pointerdown', (e) => {
-      if (e.target === this.el || e.target === this.url) this.close()
+      if (e.target === this.el || e.target === this.url || (e.target as Element).classList.contains('note')) this.close()
     })
     document.addEventListener('keydown', (e) => e.key === 'Escape' && this.close())
   }
