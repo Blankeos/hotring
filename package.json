@@ -11,8 +11,8 @@
     "deploy": "sh scripts/build.sh && wrangler deploy"
   },
   "dependencies": {
-    "qrcode": "^1.5.4",
-    "trystero": "^0.26.0"
+    "peerjs": "^1.5.5",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",
