@@ -2,6 +2,5 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "hotring",
   "compatibility_date": "2026-11-01",
-  "assets": { "directory": "./dist" },
-  "migrations": [{ "tag": "v2", "deleted_classes": ["Room"] }]
+  "assets": { "directory": "./dist" }
 }
