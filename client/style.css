@@ -1383,3 +1383,23 @@ svg {
     transform: translateX(var(--x)) rotate(var(--r)) translateY(-12px);
   }
 }
+
+/* ---------- host / guest tag ---------- */
+
+#role {
+  position: fixed;
+  left: calc(env(safe-area-inset-left) + 12px);
+  bottom: calc(env(safe-area-inset-bottom) + 10px);
+  z-index: 20;
+  pointer-events: none;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cream);
+  opacity: 0.3;
+}
+#role.host {
+  color: var(--gold, #ffcf4a);
+  opacity: 0.6;
+}

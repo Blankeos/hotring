@@ -7,6 +7,7 @@ import { Deck } from './deck'
 import { E, ICON, anim, clamp, h, reduced } from './dom'
 import { Fx } from './fx'
 import { Net } from './net'
+import { isHost } from './room'
 import { CREAM, GOLD, HOT, pc } from './palette'
 import { Ring, type RingMode } from './ring'
 import { Picker } from './picker'
@@ -60,6 +61,8 @@ const picker = new Picker(document.body, audio)
 const conn = h('div', '', stage)
 conn.id = 'conn'
 const share = new Share(document.body)
+const role = h('div', isHost ? 'role host' : 'role', document.body, isHost ? 'host' : 'guest')
+role.id = 'role'
 
 let connTimer: ReturnType<typeof setTimeout> | undefined
 const net = new Net({
