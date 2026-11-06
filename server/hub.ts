@@ -1,13 +1,13 @@
 import type { ClientMsg, ServerMsg } from '../shared/protocol'
 import { Game, type GameOptions } from './game'
 
-/** The minimum a transport must give us: Bun's ServerWebSocket and the Workers WebSocket both fit. */
+/** The minimum a transport must give us: a data channel to one phone, or the host's own loopback. */
 export interface Sock {
   send(data: string): void
   close(): void
 }
 
-/** One room: a Game plus the sockets that belong to its players. Transport-agnostic. */
+/** One table: a Game plus the channels that belong to its players. Transport-agnostic; runs in the host's browser. */
 export class Hub {
   readonly game: Game
   private socks = new Map<string, Sock>()
@@ -49,5 +49,3 @@ export class Hub {
     this.game.disconnect(id)
   }
 }
-
-export const ROOM_RE = /^[A-Z0-9]{3,8}$/

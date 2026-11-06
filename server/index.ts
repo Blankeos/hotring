@@ -1,8 +1,6 @@
 import { networkInterfaces } from 'node:os'
 import { join } from 'node:path'
-import type { ClientMsg, ServerMsg } from '../shared/protocol'
 import index from '../client/index.html'
-import { Hub, ROOM_RE } from './hub'
 
 const PORT = Number(process.env.PORT ?? 5757)
 const PUBLIC = join(import.meta.dir, '..', 'public')
@@ -21,61 +19,21 @@ function lanAddresses(): string[] {
   return found.sort((a, b) => b.score - a.score).map((f) => f.ip)
 }
 
-interface WsData {
-  code: string
-}
-
-// Rosters survive a restart of the local server: .data/rooms.json
-const SAVE = join(import.meta.dir, '..', '.data', 'rooms.json')
-const saved: Record<string, unknown> = await Bun.file(SAVE)
-  .json()
-  .catch(() => ({}))
-const rooms = new Map<string, Hub>()
-function persist() {
-  const all = Object.fromEntries([...rooms].map(([code, h]) => [code, h.game.serialize()]))
-  void Bun.write(SAVE, JSON.stringify(all))
-}
-function room(code: string) {
-  let h = rooms.get(code)
-  if (!h) {
-    h = new Hub()
-    h.game.restore(saved[code] as Parameters<typeof h.game.restore>[0])
-    h.game.onPersist = persist
-    rooms.set(code, h)
-  }
-  return h
-}
-
-const server = Bun.serve<WsData>({
+const server = Bun.serve({
   port: PORT,
   hostname: '0.0.0.0',
   routes: {
     '/': index,
     '/api/lan': () => Response.json({ ips: lanAddresses(), port: PORT }),
   },
-  async fetch(req, server) {
+  async fetch(req) {
     const url = new URL(req.url)
-    if (url.pathname === '/ws') {
-      const code = (url.searchParams.get('r') ?? '').toUpperCase()
-      if (!ROOM_RE.test(code)) return new Response('bad room', { status: 400 })
-      return server.upgrade(req, { data: { code } }) ? undefined : new Response('upgrade failed', { status: 400 })
-    }
     if (url.pathname.startsWith('/sfx/') && !url.pathname.includes('..')) {
       const f = Bun.file(join(PUBLIC, url.pathname))
       if (!(await f.exists())) return new Response('not found', { status: 404 })
       return new Response(f, { headers: { 'cache-control': 'public, max-age=3600' } })
     }
     return new Response('not found', { status: 404 })
-  },
-  websocket: {
-    idleTimeout: 60,
-    message(ws, raw) {
-      room(ws.data.code).message(ws, String(raw))
-    },
-    close(ws) {
-      const h = rooms.get(ws.data.code)
-      h?.close(ws)
-    },
   },
   development: process.env.NODE_ENV !== 'production',
 })

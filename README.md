@@ -15,7 +15,7 @@ It prints a `lan` URL such as `http://192.168.1.20:5757`. Open it on the laptop,
 
 ## Cloudflare (internet play)
 
-Live: https://hotring.carloantonioct.workers.dev. One Durable Object per room.
+Live: https://hotring.carloantonioct.workers.dev. Static assets only: the host phone runs the game and the other phones join it peer to peer (Trystero over WebRTC).
 
 ```sh
 bun run deploy   # builds the client into dist/ and runs wrangler deploy

@@ -11,6 +11,5 @@
     "noEmit": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["server", "shared", "client", "test"],
-  "exclude": ["worker"]
+  "include": ["server", "shared", "client", "test"]
 }
